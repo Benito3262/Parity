@@ -11,4 +11,4 @@ export type {
   Ticker,
 } from "./types";
 export { createBinanceWeb3Client, getBinanceWeb3Client } from "./client";
-export { MockBinanceWeb3Client } from "./mock";
+export { MockBinanceWeb3Client, MOCK_TICKERS, MOCK_TICKER_SET } from "./mock";

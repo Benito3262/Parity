@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Parity">
+  <defs>
+    <linearGradient id="g" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F3BA2F"/>
+      <stop offset="1" stop-color="#E8A017"/>
+    </linearGradient>
+  </defs>
+  <!-- Deep navy plate -->
+  <rect width="64" height="64" rx="14" fill="#0B1220"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="12.5" stroke="url(#g)" stroke-opacity="0.55" stroke-width="1.5"/>
+  <!-- Balance fulcrum -->
+  <circle cx="32" cy="34" r="3.2" fill="url(#g)"/>
+  <path d="M32 16v15.5" stroke="url(#g)" stroke-width="2.4" stroke-linecap="round"/>
+  <!-- Beam (slightly tipped then fair — visual parity) -->
+  <path d="M14 28h36" stroke="#F3BA2F" stroke-width="2.6" stroke-linecap="round"/>
+  <!-- Left pan -->
+  <path d="M14 28c0 7 4.5 12 10 12s10-5 10-12" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <circle cx="24" cy="36" r="2" fill="#F3BA2F" fill-opacity="0.9"/>
+  <!-- Right pan -->
+  <path d="M30 28c0 7 4.5 12 10 12s10-5 10-12" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <circle cx="40" cy="36" r="2" fill="#F3BA2F" fill-opacity="0.9"/>
+  <!-- Equal mark under fulcrum -->
+  <path d="M26 48h12M28 52h8" stroke="#F3BA2F" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+</svg>

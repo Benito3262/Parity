@@ -45,7 +45,7 @@ export function StepsUI({
   const idx = STEPS.findIndex((s) => s.id === current);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-5">
+    <div className="glass rounded-2xl p-5 space-y-5 animate-fade-up">
       <ol className="flex flex-col sm:flex-row gap-3 sm:gap-2">
         {STEPS.map((step, i) => {
           const done = i < idx;
@@ -53,20 +53,20 @@ export function StepsUI({
           return (
             <li
               key={step.id}
-              className={`flex-1 rounded-xl px-3 py-2.5 border ${
+              className={`flex-1 rounded-xl px-3 py-2.5 border transition-colors duration-300 ${
                 active
-                  ? "border-emerald-500 bg-emerald-50"
+                  ? "border-[#f3ba2f]/50 bg-[#f3ba2f]/10"
                   : done
-                    ? "border-emerald-200 bg-emerald-50/40"
-                    : "border-slate-100 bg-slate-50"
+                    ? "border-[#f3ba2f]/20 bg-[#f3ba2f]/5"
+                    : "border-white/5 bg-white/[0.02]"
               }`}
             >
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Step {i + 1}
               </p>
               <p
                 className={`text-sm font-semibold ${
-                  active || done ? "text-emerald-900" : "text-slate-500"
+                  active || done ? "text-[#f3ba2f]" : "text-slate-500"
                 }`}
               >
                 {step.label}
@@ -81,7 +81,7 @@ export function StepsUI({
 
       {current === "compare" && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-slate-400">
             Pick a tradeable issuer above (best route is pre-highlighted), then
             run a test trade.
           </p>
@@ -89,7 +89,7 @@ export function StepsUI({
             type="button"
             disabled={!canSimulate || simulateLoading}
             onClick={onSimulate}
-            className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="btn-press rounded-xl border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white hover:border-[#f3ba2f]/40 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {simulateLoading ? "Simulating…" : "Simulate trade"}
           </button>
@@ -97,47 +97,47 @@ export function StepsUI({
       )}
 
       {(current === "simulate" || current === "execute") && simulation && (
-        <div className="space-y-4">
-          <div className="rounded-xl bg-slate-50 border border-slate-100 p-4 text-sm">
+        <div className="space-y-4 route-enter">
+          <div className="rounded-xl bg-white/[0.03] border border-white/5 p-4 text-sm">
             {simulation.ok ? (
               <>
-                <p className="font-medium text-slate-900">
+                <p className="font-medium text-white">
                   Test run OK via {simulation.route}
                 </p>
-                <dl className="mt-2 grid grid-cols-2 gap-2 text-slate-600">
+                <dl className="mt-2 grid grid-cols-2 gap-2 text-slate-300">
                   <div>
-                    <dt className="text-xs text-slate-400">You spend</dt>
-                    <dd className="font-semibold tabular-nums">
+                    <dt className="text-xs text-slate-500">You spend</dt>
+                    <dd className="font-semibold tabular-nums number-tick">
                       {formatUsd(simulation.amountUsd)}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-slate-400">Est. tokens</dt>
-                    <dd className="font-semibold tabular-nums">
+                    <dt className="text-xs text-slate-500">Est. tokens</dt>
+                    <dd className="font-semibold tabular-nums number-tick">
                       {simulation.estimatedTokens.toFixed(4)}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-slate-400">Price / share</dt>
-                    <dd className="font-semibold tabular-nums">
+                    <dt className="text-xs text-slate-500">Price / share</dt>
+                    <dd className="font-semibold tabular-nums number-tick">
                       {formatUsd(simulation.effectivePricePerShare)}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-slate-400">Est. fees</dt>
-                    <dd className="font-semibold tabular-nums">
+                    <dt className="text-xs text-slate-500">Est. fees</dt>
+                    <dd className="font-semibold tabular-nums number-tick">
                       {formatUsd(simulation.estimatedFeesUsd, 4)}
                     </dd>
                   </div>
                 </dl>
                 {simulation.warning && (
-                  <p className="mt-2 text-xs text-amber-700">
+                  <p className="mt-2 text-xs text-amber-400">
                     {simulation.warning}
                   </p>
                 )}
               </>
             ) : (
-              <p className="text-amber-800 font-medium">
+              <p className="text-amber-400 font-medium">
                 {simulation.warning ?? "Simulation failed"}
               </p>
             )}
@@ -147,15 +147,15 @@ export function StepsUI({
             {simulation.steps.map((s) => (
               <li
                 key={s.label}
-                className="flex items-center gap-2 text-sm text-slate-700"
+                className="flex items-center gap-2 text-sm text-slate-300"
               >
                 <span
                   className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
                     s.status === "ok"
-                      ? "bg-emerald-100 text-emerald-700"
+                      ? "bg-emerald-500/15 text-emerald-400"
                       : s.status === "skip"
-                        ? "bg-slate-100 text-slate-400"
-                        : "bg-amber-100 text-amber-700"
+                        ? "bg-white/5 text-slate-500"
+                        : "bg-amber-500/15 text-amber-400"
                   }`}
                 >
                   {s.status === "ok" ? "✓" : s.status === "skip" ? "–" : "…"}
@@ -166,15 +166,15 @@ export function StepsUI({
           </ul>
 
           {simulation.ok && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-100 pt-4">
-              <p className="text-sm text-slate-600">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-white/5 pt-4">
+              <p className="text-sm text-slate-400">
                 Live buy needs a wallet on BNB Chain (BSC). Spot only — no
                 leverage.
               </p>
               <button
                 type="button"
                 onClick={onExecute}
-                className="rounded-xl border-2 border-dashed border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:border-emerald-500 hover:text-emerald-700 transition-colors"
+                className="btn-press rounded-xl border-2 border-dashed border-white/15 bg-white/[0.02] px-5 py-2.5 text-sm font-semibold text-slate-200 hover:border-[#f3ba2f]/50 hover:text-[#f3ba2f]"
               >
                 Connect wallet & buy
               </button>
@@ -182,7 +182,7 @@ export function StepsUI({
           )}
 
           {executeMessage && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 animate-fade-in">
               {executeMessage}
             </div>
           )}

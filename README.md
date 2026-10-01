@@ -43,7 +43,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - Landing: `/`
 - Buy flow: `/trade`
-- Sample tickers in mock mode: **NVDA**, **AAPL**
+- Sample tickers in mock mode: **28 liquid names** (NVDA, AAPL, TSLA, MSFT, SPY, QQQ, COIN, …)
 
 Production build:
 
@@ -99,7 +99,7 @@ src/
   lib/
     binance-web3/
       types.ts            # Client interface + domain types
-      mock.ts             # Realistic NVDA/AAPL fixtures
+      mock.ts             # ~28 liquid ticker fixtures across 3 issuers
       client.ts           # Factory (mock today, live later)
       index.ts
     parity.ts             # Normalize to $/share, premium vs close, best route

@@ -36,7 +36,7 @@ export function BuyForm({
           Amount (USD)
         </span>
         <div className="relative">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
             $
           </span>
           <input
@@ -46,7 +46,7 @@ export function BuyForm({
             inputMode="decimal"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-7 pr-3 text-lg font-medium text-slate-900 shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+            className="w-full rounded-xl border border-white/10 bg-white/[0.04] py-3 pl-7 pr-3 text-lg font-medium text-white shadow-inner outline-none focus:border-[#f3ba2f]/50 focus:ring-2 focus:ring-[#f3ba2f]/15 placeholder:text-slate-600"
             placeholder="20"
             required
           />
@@ -61,7 +61,7 @@ export function BuyForm({
           type="text"
           value={ticker}
           onChange={(e) => setTicker(e.target.value.toUpperCase())}
-          className="w-full rounded-xl border border-slate-200 bg-white py-3 px-3 text-lg font-medium uppercase tracking-wide text-slate-900 shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+          className="w-full rounded-xl border border-white/10 bg-white/[0.04] py-3 px-3 text-lg font-medium uppercase tracking-wide text-white shadow-inner outline-none focus:border-[#f3ba2f]/50 focus:ring-2 focus:ring-[#f3ba2f]/15 placeholder:text-slate-600"
           placeholder="NVDA"
           maxLength={8}
           required
@@ -71,7 +71,7 @@ export function BuyForm({
       <button
         type="submit"
         disabled={loading}
-        className="rounded-xl bg-emerald-600 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed transition-colors sm:min-w-[140px]"
+        className="btn-press btn-gold rounded-xl px-6 py-3 text-base disabled:opacity-60 disabled:cursor-not-allowed sm:min-w-[140px]"
       >
         {loading ? "Comparing…" : "Find fair price"}
       </button>

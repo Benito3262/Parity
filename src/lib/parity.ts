@@ -104,7 +104,7 @@ export function buildParityComparison(args: {
 
   let summary: string;
   if (quotes.length === 0) {
-    summary = `No mock quotes for ${ticker.toUpperCase()}. Try NVDA or AAPL.`;
+    summary = `No mock quotes for ${ticker.toUpperCase()}. Try NVDA, AAPL, TSLA, SPY, or another liquid ticker.`;
   } else if (!bestIssuer) {
     summary = `None of the three issuers can trade ${ticker.toUpperCase()} right now. Compare premiums and check again when markets reopen.`;
   } else {

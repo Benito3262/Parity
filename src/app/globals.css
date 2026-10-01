@@ -1,13 +1,26 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #0f172a;
+  --background: #070b14;
+  --foreground: #e8edf7;
+  --card: rgba(15, 23, 42, 0.72);
+  --card-border: rgba(148, 163, 184, 0.14);
+  --muted: #94a3b8;
+  --gold: #f3ba2f;
+  --gold-dim: #c9961a;
+  --navy: #0b1220;
+  --navy-2: #111827;
+  --accent: #f3ba2f;
+  --success: #34d399;
+  --danger: #f87171;
+  --warn: #fbbf24;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-gold: var(--gold);
+  --color-navy: var(--navy);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -16,14 +29,141 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(243, 186, 47, 0.12), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(59, 130, 246, 0.08), transparent 50%),
+    radial-gradient(ellipse 50% 30% at 0% 100%, rgba(243, 186, 47, 0.05), transparent 45%);
+  background-attachment: fixed;
+  min-height: 100vh;
 }
 
-/* Calm focus ring for accessibility */
 :focus-visible {
-  outline: 2px solid #059669;
+  outline: 2px solid var(--gold);
   outline-offset: 2px;
 }
 
 html {
   scroll-behavior: smooth;
+}
+
+/* ——— Motion (CSS-first) ——— */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-gold {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(243, 186, 47, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(243, 186, 47, 0); }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease both;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.2s; }
+.stagger-5 { animation-delay: 0.25s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-scale-in {
+    animation: none !important;
+  }
+}
+
+/* Glass card */
+.glass {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.glass-strong {
+  background: rgba(11, 18, 32, 0.88);
+  border: 1px solid rgba(243, 186, 47, 0.12);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* Interactive press/hover */
+.btn-press {
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+.btn-press:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.btn-press:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+}
+
+.btn-gold {
+  background: linear-gradient(135deg, #f3ba2f 0%, #e8a017 100%);
+  color: #0b1220;
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(243, 186, 47, 0.25);
+}
+.btn-gold:hover:not(:disabled) {
+  background: linear-gradient(135deg, #f7c94a 0%, #f3ba2f 100%);
+  box-shadow: 0 6px 28px rgba(243, 186, 47, 0.35);
+}
+
+.number-tick {
+  transition: color 0.25s ease, opacity 0.25s ease;
+}
+
+.route-enter {
+  animation: scale-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.best-glow {
+  box-shadow: inset 0 0 0 1px rgba(243, 186, 47, 0.35), 0 0 24px rgba(243, 186, 47, 0.08);
+}
+
+.ticker-chip {
+  transition: transform 0.15s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.ticker-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(243, 186, 47, 0.45);
+  background: rgba(243, 186, 47, 0.08);
 }

@@ -19,6 +19,16 @@ export const metadata: Metadata = {
   },
   description:
     "Compare bStocks, Ondo, and xStocks on BNB. True price per share, premium vs last close, best spot route.",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: "/parity-logo.svg",
+  },
+  openGraph: {
+    title: "Parity — Fair price for tokenized stocks",
+    description:
+      "Fair-price router across bStocks, Ondo, and xStocks on BNB Chain.",
+    images: [{ url: "/parity-logo.svg" }],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -27,7 +37,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-white text-slate-900 font-sans">
+      <body className="min-h-full flex flex-col bg-background text-foreground font-sans">
         {children}
       </body>
     </html>
