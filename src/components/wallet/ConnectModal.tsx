@@ -56,6 +56,8 @@ export function ConnectModal({ open, onClose }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [hasInjected, setHasInjected] = useState(true);
+  /** True while WalletConnect QR / deep-link UI owns the screen. */
+  const [wcHandoff, setWcHandoff] = useState(false);
 
   useEffect(() => {
     setIsMobile(detectMobile());
@@ -65,15 +67,28 @@ export function ConnectModal({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) {
       setBusyId(null);
+      setWcHandoff(false);
       reset();
       return;
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !wcHandoff) onClose();
     };
+    // Lock page scroll without clipping portaled WalletConnect modals.
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverscroll = document.body.style.overscrollBehavior;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
+    document.documentElement.classList.add("parity-modal-open");
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose, reset]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overscrollBehavior = prevBodyOverscroll;
+      document.documentElement.classList.remove("parity-modal-open");
+    };
+  }, [open, onClose, reset, wcHandoff]);
 
   const preferMobileWallets = isMobile || !hasInjected;
 
@@ -98,6 +113,10 @@ export function ConnectModal({ open, onClose }: Props) {
     const connector = connectors.find((c) => c.id === connectorId);
     if (!connector) return;
     setBusyId(connectorId);
+    const isWc = connectorId === "walletConnect";
+    // Hide our bottom sheet so WalletConnect QR / Next actions aren't clipped
+    // under our overlay or iOS home indicator.
+    if (isWc) setWcHandoff(true);
     try {
       const result = await connectAsync({
         connector,
@@ -112,7 +131,8 @@ export function ConnectModal({ open, onClose }: Props) {
       }
       onClose();
     } catch {
-      // Error surfaced via useConnect().error
+      // Error surfaced via useConnect().error — show our sheet again to retry.
+      if (isWc) setWcHandoff(false);
     } finally {
       setBusyId(null);
     }
@@ -122,9 +142,12 @@ export function ConnectModal({ open, onClose }: Props) {
   const showMissingWcForMobile = !hasWalletConnect && preferMobileWallets;
   const showMissingWcDesktop = !hasWalletConnect && !preferMobileWallets;
 
+  // While WC modal is open, render nothing from us so WC owns the viewport.
+  if (wcHandoff) return null;
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 animate-fade-in"
+      className="parity-connect-overlay fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="connect-wallet-title"
@@ -135,126 +158,154 @@ export function ConnectModal({ open, onClose }: Props) {
         aria-label="Close connect modal"
         onClick={onClose}
       />
-      <div className="relative w-full max-w-md glass-strong rounded-2xl p-5 sm:p-6 shadow-2xl animate-scale-in">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2
-              id="connect-wallet-title"
-              className="text-lg font-semibold text-white"
+      {/* Bottom sheet on small screens; centered modal on sm+ */}
+      <div
+        className="parity-connect-sheet relative z-[101] flex w-full max-h-[min(92dvh,920px)] flex-col overflow-hidden rounded-t-2xl border border-white/10 bg-[rgba(11,18,32,0.96)] shadow-2xl backdrop-blur-xl animate-scale-in sm:max-w-md sm:rounded-2xl sm:border-[rgba(243,186,47,0.12)]"
+      >
+        <div className="shrink-0 px-5 pt-4 pb-3 sm:px-6 sm:pt-5">
+          {/* Mobile drag affordance */}
+          <div
+            className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/15 sm:hidden"
+            aria-hidden
+          />
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2
+                id="connect-wallet-title"
+                className="text-lg font-semibold text-white"
+              >
+                Connect wallet
+              </h2>
+              <p className="mt-1 text-sm text-slate-400">
+                {showWcPrimary
+                  ? "Open Zerion, MetaMask, Trust, or Rainbow to connect on BNB Chain."
+                  : "BNB Smart Chain (BSC · chain id 56). Spot only."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="btn-press shrink-0 rounded-lg border border-white/10 px-2.5 py-1 text-sm text-slate-400 hover:text-white hover:border-white/20"
             >
-              Connect wallet
-            </h2>
-            <p className="mt-1 text-sm text-slate-400">
-              {showWcPrimary
-                ? "Open Zerion, MetaMask, Trust, or Rainbow to connect on BNB Chain."
-                : "BNB Smart Chain (BSC · chain id 56). Spot only."}
-            </p>
+              Esc
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="btn-press rounded-lg border border-white/10 px-2.5 py-1 text-sm text-slate-400 hover:text-white hover:border-white/20"
-          >
-            Esc
-          </button>
         </div>
 
-        {showMissingWcForMobile && (
-          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-3 text-sm text-amber-100 leading-relaxed">
-            <p className="font-semibold text-amber-50">
-              Mobile wallets need WalletConnect
-            </p>
-            <p className="mt-1.5 text-xs text-amber-200/90">
-              iPhone and other mobile browsers do not have a browser extension.
-              To connect Zerion, MetaMask app, Trust, Rainbow, and similar wallets,
-              set{" "}
-              <code className="rounded bg-black/30 px-1 py-0.5 text-amber-50">
-                NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
-              </code>{" "}
-              (free at cloud.walletconnect.com / Reown) and redeploy.
-            </p>
-            {!hasInjected && (
-              <p className="mt-2 text-xs text-amber-200/80">
-                No injected wallet was detected in this browser, so Browser wallet
-                is unavailable here.
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 sm:px-6">
+          {showMissingWcForMobile && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-3 text-sm text-amber-100 leading-relaxed">
+              <p className="font-semibold text-amber-50">
+                Mobile wallets need WalletConnect
               </p>
-            )}
-          </div>
-        )}
+              <p className="mt-1.5 text-xs text-amber-200/90">
+                iPhone and other mobile browsers do not have a browser extension.
+                To connect Zerion, MetaMask app, Trust, Rainbow, and similar wallets,
+                set{" "}
+                <code className="rounded bg-black/30 px-1 py-0.5 text-amber-50">
+                  NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+                </code>{" "}
+                (free at cloud.walletconnect.com / Reown) and redeploy.
+              </p>
+              {!hasInjected && (
+                <p className="mt-2 text-xs text-amber-200/80">
+                  No injected wallet was detected in this browser, so Browser wallet
+                  is unavailable here.
+                </p>
+              )}
+            </div>
+          )}
 
-        <ul className="mt-5 space-y-2">
-          {visibleConnectors.map((connector) => {
-            const pending = busyId === connector.id;
-            const isPrimary =
-              showWcPrimary && connector.id === "walletConnect";
-            return (
-              <li key={connector.uid}>
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => handleConnect(connector.id)}
-                  className={
-                    isPrimary
-                      ? "btn-press w-full rounded-xl border border-[#f3ba2f]/50 bg-[#f3ba2f]/15 px-4 py-3.5 text-left hover:border-[#f3ba2f]/70 hover:bg-[#f3ba2f]/25 disabled:opacity-60 shadow-[0_0_24px_-8px_rgba(243,186,47,0.45)]"
-                      : "btn-press w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left hover:border-[#f3ba2f]/40 hover:bg-[#f3ba2f]/5 disabled:opacity-60"
-                  }
-                >
-                  <span className="flex items-center justify-between gap-2">
-                    <span
-                      className={
-                        isPrimary
-                          ? "font-semibold text-[#f3ba2f]"
-                          : "font-semibold text-white"
-                      }
-                    >
-                      {connectorLabel(connector.id, connector.name)}
-                    </span>
-                    {pending ? (
-                      <span className="text-xs text-[#f3ba2f]">Connecting…</span>
-                    ) : (
+          <ul className="mt-1 space-y-2 pb-2">
+            {visibleConnectors.map((connector) => {
+              const pending = busyId === connector.id;
+              const isPrimary =
+                showWcPrimary && connector.id === "walletConnect";
+              return (
+                <li key={connector.uid}>
+                  <button
+                    type="button"
+                    disabled={isPending}
+                    onClick={() => handleConnect(connector.id)}
+                    className={
+                      isPrimary
+                        ? "btn-press w-full rounded-xl border border-[#f3ba2f]/50 bg-[#f3ba2f]/15 px-4 py-3.5 text-left hover:border-[#f3ba2f]/70 hover:bg-[#f3ba2f]/25 disabled:opacity-60 shadow-[0_0_24px_-8px_rgba(243,186,47,0.45)]"
+                        : "btn-press w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left hover:border-[#f3ba2f]/40 hover:bg-[#f3ba2f]/5 disabled:opacity-60"
+                    }
+                  >
+                    <span className="flex items-center justify-between gap-2">
                       <span
                         className={
                           isPrimary
-                            ? "text-xs font-medium text-[#f3ba2f]"
-                            : "text-xs text-slate-500"
+                            ? "font-semibold text-[#f3ba2f]"
+                            : "font-semibold text-white"
                         }
                       >
-                        {isPrimary ? "Open wallets" : "Connect"}
+                        {connectorLabel(connector.id, connector.name)}
                       </span>
-                    )}
-                  </span>
-                  <span className="mt-1 block text-xs text-slate-400 leading-relaxed">
-                    {connectorHint(connector.id, preferMobileWallets)}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+                      {pending ? (
+                        <span className="text-xs text-[#f3ba2f]">Connecting…</span>
+                      ) : (
+                        <span
+                          className={
+                            isPrimary
+                              ? "text-xs font-medium text-[#f3ba2f]"
+                              : "text-xs text-slate-500"
+                          }
+                        >
+                          {isPrimary ? "Open wallets" : "Connect"}
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-1 block text-xs text-slate-400 leading-relaxed">
+                      {connectorHint(connector.id, preferMobileWallets)}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
 
-        {hasInjected && preferMobileWallets && hasWalletConnect && (
-          <p className="mt-3 text-[11px] text-slate-500 leading-relaxed">
-            Browser wallet stays available because an injected provider was
-            detected, but mobile deep-link wallets are recommended on phones.
-          </p>
-        )}
+          {hasInjected && preferMobileWallets && hasWalletConnect && (
+            <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
+              Browser wallet stays available because an injected provider was
+              detected, but mobile deep-link wallets are recommended on phones.
+            </p>
+          )}
 
-        {showMissingWcDesktop && (
-          <p className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90 leading-relaxed">
-            WalletConnect is offline until{" "}
-            <code className="text-amber-100">
-              NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
-            </code>{" "}
-            is set. Browser extensions still work. Mobile wallets (Zerion app,
-            Trust, Rainbow, MetaMask mobile) need that project id.
-          </p>
-        )}
+          {showMissingWcDesktop && (
+            <p className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90 leading-relaxed">
+              WalletConnect is offline until{" "}
+              <code className="text-amber-100">
+                NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+              </code>{" "}
+              is set. Browser extensions still work. Mobile wallets (Zerion app,
+              Trust, Rainbow, MetaMask mobile) need that project id.
+            </p>
+          )}
 
-        {error && (
-          <p className="mt-3 text-sm text-[#f87171]">
-            {error.message || "Could not connect. Try another wallet."}
-          </p>
-        )}
+          {error && (
+            <p className="mt-3 text-sm text-[#f87171]">
+              {error.message || "Could not connect. Try another wallet."}
+            </p>
+          )}
+        </div>
+
+        {/* Sticky footer — Cancel always fully visible above home indicator */}
+        <div
+          className="shrink-0 border-t border-white/10 bg-[rgba(11,18,32,0.98)] px-5 pt-3 sm:px-6"
+          style={{
+            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-press w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-slate-200 hover:border-white/20 hover:bg-white/[0.07]"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

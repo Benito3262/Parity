@@ -167,3 +167,31 @@ html {
   border-color: rgba(243, 186, 47, 0.45);
   background: rgba(243, 186, 47, 0.08);
 }
+
+/* ——— Connect / WalletConnect modal mobile safety ——— */
+html.parity-modal-open,
+html.parity-modal-open body {
+  /* Keep WC / Reown portals (appended to body) from being clipped by
+     overflow:hidden on a transformed ancestor. We only lock html scroll. */
+  overscroll-behavior: none;
+}
+
+/* WalletConnect / Reown modal: ensure primary actions clear the home indicator */
+wcm-modal,
+w3m-modal,
+[data-testid="wcm-modal"],
+[class*="wcm-overlay"],
+[class*="w3m-overlay"] {
+  z-index: 2147483646 !important;
+}
+
+/* Safe-area padding for WC modal footers when we can target them */
+wcm-modal::part(container),
+w3m-modal {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.parity-connect-sheet {
+  /* Extra insurance: never let the sheet exceed the visual viewport */
+  max-height: min(92dvh, 100svh);
+}
