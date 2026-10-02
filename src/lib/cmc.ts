@@ -107,7 +107,8 @@ export async function cmcProxyFetch(
       status: 503,
       body: {
         error: "CMC_API_KEY not configured",
-        hint: "Set CMC_API_KEY or COINMARKETCAP_API_KEY in server env",
+        configured: false,
+        hint: "Parity production runs without CoinMarketCap. Prices come from Yahoo (closes), DexScreener, and PancakeSwap. Set CMC_API_KEY only if you have a real key — do not invent one.",
       },
     };
   }

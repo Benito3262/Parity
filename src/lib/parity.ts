@@ -38,6 +38,8 @@ export type ParityRow = {
   /** Extra paid vs best route (if this row is worse and tradeable) */
   worseByUsd?: number | null;
   worseByPct?: number | null;
+  /** Rising/falling from token premium vs close over time */
+  premiumDirection?: "up" | "down" | "flat" | null;
 };
 
 export type ParityComparison = {
@@ -126,6 +128,7 @@ export function buildParityComparison(args: {
       contractAddress: q.contractAddress,
       worseByUsd: null as number | null,
       worseByPct: null as number | null,
+      premiumDirection: q.premiumDirection ?? null,
     } satisfies ParityRow;
   });
 

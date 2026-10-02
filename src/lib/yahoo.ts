@@ -12,11 +12,13 @@ export type YahooClose = {
   closeUsd: number;
   /** Unix seconds of that bar */
   closeTimeSec: number;
-  /** ISO timestamp */
+  /** ISO timestamp of that ET day's regular close */
   asOf: string;
+  /** Calendar date in ET (YYYY-MM-DD) of the close bar */
+  closeEtDate: string;
   /** Latest regularMarketPrice if available (may be live/extended) */
   lastPriceUsd: number | null;
-  /** Short momentum: last close vs prior close */
+  /** Short momentum: last completed close vs prior completed close */
   direction: "up" | "down" | "flat" | null;
   source: "yahoo";
 };
@@ -38,9 +40,15 @@ function regularCloseIso(etDate: string): string {
   return `${etDate}T20:00:00.000Z`;
 }
 
+/**
+ * Last COMPLETED daily bar close.
+ * Never use meta.chartPreviousClose — with a multi-day range it can be
+ * weeks stale (e.g. TSLA showing $365.44 instead of Oct 1 $354.11).
+ * During pre-market / regular, today's bar is incomplete → drop it.
+ */
 export async function fetchYahooClose(ticker: string): Promise<YahooClose | null> {
   const t = ticker.toUpperCase();
-  return cacheGetOrSet(`yahoo:close:v3:${t}`, 5 * 60_000, async () => {
+  return cacheGetOrSet(`yahoo:close:v4:${t}`, 5 * 60_000, async () => {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
       t
     )}?interval=1d&range=15d`;
@@ -85,9 +93,7 @@ export async function fetchYahooClose(ticker: string): Promise<YahooClose | null
     const last = pairs[pairs.length - 1];
     if (
       last.et === todayEt &&
-      (status.session === "pre-market" ||
-        status.session === "regular" ||
-        status.session === "closed")
+      (status.session === "pre-market" || status.session === "regular")
     ) {
       completed = pairs.slice(0, -1);
     }
@@ -102,18 +108,6 @@ export async function fetchYahooClose(ticker: string): Promise<YahooClose | null
       direction = d > 0.01 ? "up" : d < -0.01 ? "down" : "flat";
     }
 
-    const metaPrev =
-      result.meta?.chartPreviousClose ?? result.meta?.previousClose ?? null;
-    let closeUsd = closeBar.c;
-    const closeEt = closeBar.et;
-    if (
-      (status.session === "pre-market" || status.session === "regular") &&
-      typeof metaPrev === "number" &&
-      metaPrev > 0
-    ) {
-      closeUsd = metaPrev;
-    }
-
     const lastPrice =
       typeof result.meta?.regularMarketPrice === "number"
         ? result.meta.regularMarketPrice
@@ -121,9 +115,10 @@ export async function fetchYahooClose(ticker: string): Promise<YahooClose | null
 
     return {
       ticker: t,
-      closeUsd,
+      closeUsd: closeBar.c,
       closeTimeSec: closeBar.t,
-      asOf: regularCloseIso(closeEt),
+      asOf: regularCloseIso(closeBar.et),
+      closeEtDate: closeBar.et,
       lastPriceUsd: lastPrice,
       direction,
       source: "yahoo",

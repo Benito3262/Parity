@@ -36,6 +36,26 @@ function PremiumCell({ row }: { row: ParityRow }) {
   );
 }
 
+function closedLabel(row: ParityRow): string {
+  const reason = (row.tradeableReason || "").toLowerCase();
+  // xStocks trade 24/7 — never label as market "Closed"
+  if (row.issuer === "xstocks") {
+    if (reason.includes("impact")) return "Impact too high";
+    if (reason.includes("junk") || reason.includes("from reference"))
+      return "Price off-market";
+    if (reason.includes("liquid") || reason.includes("route") || reason.includes("pool"))
+      return "No liquid route";
+    return "Unavailable";
+  }
+  if (reason.includes("regular hours") || reason.includes("pre-market") || reason.includes("post-market") || reason.includes("overnight") || reason.includes("weekend") || reason.includes("holiday"))
+    return "Closed";
+  if (reason.includes("thin pool") || reason.includes("junk") || reason.includes("from reference"))
+    return "Not executable";
+  if (reason.includes("unverified") || reason.includes("no verified"))
+    return "Unsupported";
+  return "Unavailable";
+}
+
 function TradeableBadge({ row }: { row: ParityRow }) {
   if (row.tradeableNow) {
     return (
@@ -45,14 +65,23 @@ function TradeableBadge({ row }: { row: ParityRow }) {
       </span>
     );
   }
+  const label = closedLabel(row);
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full bg-white/5 px-2 py-0.5 text-xs font-medium text-slate-400 ring-1 ring-inset ring-white/10"
       title={row.tradeableReason}
     >
       <span className="h-1.5 w-1.5 rounded-full bg-slate-500" />
-      Closed
+      {label}
     </span>
+  );
+}
+
+function canSelect(row: ParityRow): boolean {
+  if (row.tradeableNow) return true;
+  // Ondo / bStocks: selectable so Simulate can show Binance coming-soon
+  return (
+    (row.issuer === "ondo" || row.issuer === "bstocks") && row.pricePerShare > 0
   );
 }
 
@@ -109,7 +138,9 @@ export function ResultsTable({
               <tr
                 key={row.issuer}
                 className={`animate-fade-up stagger-${i + 1} ${
-                  row.isBestRoute
+                  !row.tradeableNow
+                    ? "opacity-55 bg-transparent"
+                    : row.isBestRoute
                     ? "best-glow bg-[#f3ba2f]/[0.06]"
                     : selectedIssuer === row.issuer
                       ? "bg-white/[0.04]"
@@ -163,7 +194,7 @@ export function ResultsTable({
                 <td className="px-4 py-3.5 text-right">
                   <button
                     type="button"
-                    disabled={!row.tradeableNow}
+                    disabled={!canSelect(row)}
                     onClick={() => onSelect(row.issuer)}
                     className="btn-press rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:border-[#f3ba2f]/50 hover:text-[#f3ba2f] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -182,7 +213,7 @@ export function ResultsTable({
           <button
             key={row.issuer}
             type="button"
-            disabled={!row.tradeableNow}
+            disabled={!canSelect(row)}
             onClick={() => onSelect(row.issuer)}
             className={`btn-press animate-fade-up stagger-${i + 1} w-full text-left rounded-2xl glass p-4 disabled:opacity-60 ${
               row.isBestRoute

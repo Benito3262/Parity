@@ -1,5 +1,5 @@
 /**
- * Hybrid data client: Yahoo (underlying close) + DexScreener/CMC (token prices)
+ * Hybrid data client: Yahoo (underlying close) + DexScreener (token prices)
  * + market clock + PancakeSwap size-aware quotes for xStocks.
  * Used when BINANCE_LIVE is not enabled.
  */
@@ -26,7 +26,13 @@ import {
 import { getMarketStatus, issuerTradeability } from "@/lib/market-clock";
 import { fetchYahooClose } from "@/lib/yahoo";
 import { cmcQuotesBySymbol, getCmcApiKey } from "@/lib/cmc";
-import { fetchDexTokenPrices } from "@/lib/dex-prices";
+import {
+  fetchDexTokenPrices,
+  priceSanityReject,
+  MIN_POOL_LIQUIDITY_USD,
+  MIN_POOL_VOLUME_24H_USD,
+  MAX_PRICE_VS_REF_PCT,
+} from "@/lib/dex-prices";
 import { quoteBuyWithUsdt, simulateSwap } from "@/lib/pancakeswap";
 
 const ISSUERS: IssuerMeta[] = [
@@ -50,12 +56,30 @@ const ISSUERS: IssuerMeta[] = [
   },
 ];
 
-function liqFromUsd(
-  liq: number
-): "high" | "medium" | "low" {
+function liqFromUsd(liq: number): "high" | "medium" | "low" {
   if (liq >= 500_000) return "high";
   if (liq >= 50_000) return "medium";
   return "low";
+}
+
+/** In-memory premium history for drift rising/falling (token vs close). */
+const premiumHistory = new Map<
+  string,
+  { premiumPct: number; at: number }
+>();
+
+function premiumDirection(
+  key: string,
+  premiumPct: number | null
+): "up" | "down" | "flat" | null {
+  if (premiumPct == null) return null;
+  const prev = premiumHistory.get(key);
+  premiumHistory.set(key, { premiumPct, at: Date.now() });
+  if (!prev || Date.now() - prev.at > 30 * 60_000) return null;
+  const d = premiumPct - prev.premiumPct;
+  if (d > 0.05) return "up";
+  if (d < -0.05) return "down";
+  return "flat";
 }
 
 export class HybridDataClient implements BinanceWeb3Client {
@@ -84,9 +108,7 @@ export class HybridDataClient implements BinanceWeb3Client {
     amountUsd = 20
   ): Promise<RawIssuerQuote[]> {
     const t = ticker.toUpperCase();
-    if (!FEATURED_TICKER_SET.has(t)) {
-      // Still attempt — Yahoo may work; tokens may be unverified
-    }
+    void FEATURED_TICKER_SET;
     const listings = listTokensForTicker(t);
     if (listings.length === 0) return [];
 
@@ -96,10 +118,11 @@ export class HybridDataClient implements BinanceWeb3Client {
       .filter((l) => l.verified && l.address)
       .map((l) => l.address!) as string[];
 
-    // Prefer CMC when keyed; always try DexScreener for BSC addresses
     const dexMap = await fetchDexTokenPrices(addresses);
-    let cmcBySymbol: Record<string, { priceUsd: number; volume24h: number | null }> =
-      {};
+    let cmcBySymbol: Record<
+      string,
+      { priceUsd: number; volume24h: number | null }
+    > = {};
     if (getCmcApiKey()) {
       const cmc = await cmcQuotesBySymbol(
         listings.map((l) => l.tokenSymbol)
@@ -114,8 +137,9 @@ export class HybridDataClient implements BinanceWeb3Client {
       }
     }
 
-    // Yahoo last price as last-resort reference (labeled)
     const yahoo = await fetchYahooClose(t);
+    const referenceUsd =
+      yahoo?.closeUsd ?? yahoo?.lastPriceUsd ?? null;
 
     const quotes: RawIssuerQuote[] = [];
 
@@ -150,105 +174,175 @@ export class HybridDataClient implements BinanceWeb3Client {
       let volume24hUsd = 0;
       let liquidityUsd = 0;
       let dataSource = "none";
+      let poolOk = true;
+      let poolReject: string | undefined;
 
       if (cmc?.priceUsd) {
         tokenPriceUsd = cmc.priceUsd;
         volume24hUsd = cmc.volume24h ?? 0;
         dataSource = "coinmarketcap";
       }
+
       if (dex?.priceUsd) {
-        // Prefer dex for on-chain tradable price when we will route via PCS
-        if (listing.issuer === "xstocks" || !tokenPriceUsd) {
+        liquidityUsd = dex.liquidityUsd;
+        volume24hUsd = volume24hUsd || dex.volume24hUsd;
+        if (!dex.liquidEnough) {
+          poolOk = false;
+          poolReject = dex.rejectReason;
+        }
+        // Prefer dex for on-chain price when liquid enough
+        if (dex.liquidEnough && (listing.issuer === "xstocks" || !tokenPriceUsd)) {
           tokenPriceUsd = dex.priceUsd;
-          volume24hUsd = dex.volume24hUsd;
-          liquidityUsd = dex.liquidityUsd;
           dataSource = "dexscreener";
-        } else {
-          liquidityUsd = dex.liquidityUsd;
-          volume24hUsd = volume24hUsd || dex.volume24hUsd;
+        } else if (!tokenPriceUsd && !dex.liquidEnough) {
+          // Keep thin-pool price for display only — not tradeable
+          tokenPriceUsd = dex.priceUsd;
+          dataSource = "dexscreener-thin";
+        } else if (!tokenPriceUsd) {
+          tokenPriceUsd = dex.priceUsd;
+          dataSource = "dexscreener";
         }
       }
 
-      // Size-aware PCS quote for xStocks (required for live buy path)
+      // Size-aware PCS quote for xStocks (and as price discovery for others when possible)
       let priceImpactPct: number | null = null;
       let pcsOk = false;
+      let pcsBlockedReason: string | undefined;
+      let hadPcsRoute = false;
+
       if (listing.issuer === "xstocks" && listing.address) {
         try {
           let pcs = await quoteBuyWithUsdt({
             tokenOut: listing.address,
-            amountUsd: Math.max(amountUsd, 5),
+            amountUsd: Math.max(amountUsd, 1),
             tokenDecimals: listing.decimals,
           });
-          if (!pcs.ok) {
+          if (!pcs.ok && pcs.path.length === 0) {
             const wrap = XSTOCKS_WRAPPER_BSC[t];
             if (wrap) {
               pcs = await quoteBuyWithUsdt({
                 tokenOut: wrap,
-                amountUsd: Math.max(amountUsd, 5),
+                amountUsd: Math.max(amountUsd, 1),
                 tokenDecimals: listing.decimals,
               });
             }
           }
-          if (pcs.ok && pcs.effectiveTokenPriceUsd > 0 && !pcs.blocked) {
+          if (pcs.path.length > 0) hadPcsRoute = true;
+
+          if (pcs.effectiveTokenPriceUsd > 0) {
             tokenPriceUsd = pcs.effectiveTokenPriceUsd;
             priceImpactPct = pcs.priceImpactPct;
             dataSource = "pancakeswap-v2";
+          }
+
+          if (pcs.ok && pcs.effectiveTokenPriceUsd > 0 && !pcs.blocked) {
             pcsOk = true;
           } else if (pcs.blocked) {
-            tokenPriceUsd = pcs.effectiveTokenPriceUsd || tokenPriceUsd;
-            priceImpactPct = pcs.priceImpactPct;
-            dataSource = "pancakeswap-v2";
-            quotes.push({
-              issuer: listing.issuer,
-              ticker: t,
-              tokenSymbol: listing.tokenSymbol,
-              tokenPriceUsd: tokenPriceUsd || yahoo?.lastPriceUsd || 0,
-              tokenToShareRatio: ratio,
-              tokensPerShare: 1 / ratio,
-              contractAddress: listing.address,
-              tradeableNow: false,
-              tradeableReason: pcs.blockReason,
-              liquidity: "low",
-              liquidityNote: pcs.blockReason || "PCS route blocked",
-              volume24hUsd,
-              updatedAt: now,
-              priceImpactPct,
-              dataSource,
-            });
-            continue;
-          } else if (!tokenPriceUsd) {
-            if (dex?.priceUsd) {
-              tokenPriceUsd = dex.priceUsd;
-              dataSource = "dexscreener";
-            } else if (yahoo?.lastPriceUsd) {
-              tokenPriceUsd = yahoo.lastPriceUsd;
-              dataSource = "yahoo-underlying-proxy";
-            }
+            pcsBlockedReason = pcs.blockReason;
+          } else if (!pcs.ok) {
+            pcsBlockedReason =
+              pcs.blockReason || "No liquid route on PancakeSwap V2.";
           }
         } catch {
           /* keep prior price */
         }
       }
 
-      if (!tokenPriceUsd && yahoo?.lastPriceUsd) {
-        tokenPriceUsd = yahoo.lastPriceUsd;
-        dataSource = "yahoo-underlying-proxy";
+      // Sanity vs reference stock price (per share)
+      let sanity =
+        tokenPriceUsd > 0
+          ? priceSanityReject(tokenPriceUsd / ratio, referenceUsd)
+          : null;
+
+      // If PCS/dex price is off-market, prefer a liquid DexScreener price for display
+      if (sanity && dex?.liquidEnough && dex.priceUsd > 0) {
+        const dexSanity = priceSanityReject(dex.priceUsd / ratio, referenceUsd);
+        if (!dexSanity) {
+          tokenPriceUsd = dex.priceUsd;
+          dataSource = "dexscreener";
+          volume24hUsd = dex.volume24hUsd;
+          liquidityUsd = dex.liquidityUsd;
+          priceImpactPct = null;
+          pcsOk = false;
+          sanity = null;
+          if (listing.issuer === "xstocks") {
+            pcsBlockedReason =
+              pcsBlockedReason ||
+              "PancakeSwap quote was off-market — showing DexScreener price (not executable).";
+          }
+        }
       }
 
       let tradeableNow = trade.tradeableNow;
       let tradeableReason = trade.tradeableReason;
 
-      // xStocks: only tradeable when a real PCS route exists (spot buy path)
-      if (listing.issuer === "xstocks" && !pcsOk) {
+      if (listing.issuer === "xstocks") {
+        if (pcsOk && !sanity) {
+          tradeableNow = true;
+          tradeableReason = undefined;
+        } else if (sanity) {
+          tradeableNow = false;
+          tradeableReason = sanity;
+        } else if (pcsBlockedReason) {
+          tradeableNow = false;
+          // Prefer impact / liquid wording — never "Closed"
+          tradeableReason = pcsBlockedReason;
+        } else if (!hadPcsRoute) {
+          tradeableNow = false;
+          tradeableReason = "No liquid route on PancakeSwap V2 for this xStock.";
+        } else {
+          tradeableNow = false;
+          tradeableReason = "No liquid route right now.";
+        }
+      } else {
+        // Ondo / bStocks: not executable until Binance Web3 — never rank as best.
         tradeableNow = false;
-        tradeableReason =
-          "No PancakeSwap V2 pool found on BSC for this xStock yet — compare-only until liquidity appears.";
+        if (sanity) {
+          tradeableReason = sanity;
+        } else if (!poolOk && dataSource.startsWith("dexscreener")) {
+          tradeableReason =
+            poolReject ||
+            `Thin pool (need ≥$${MIN_POOL_LIQUIDITY_USD.toLocaleString()} liquidity and ≥$${MIN_POOL_VOLUME_24H_USD.toLocaleString()} 24h volume).`;
+        } else if (!tokenPriceUsd) {
+          tradeableReason = `No live price for ${listing.tokenSymbol} yet.`;
+        } else if (!trade.tradeableNow) {
+          tradeableReason =
+            (trade.tradeableReason ? trade.tradeableReason + " " : "") +
+            "Live trading coming soon via Binance.";
+        } else {
+          tradeableReason =
+            "Live trading coming soon via Binance (compare-only until portal API keys).";
+        }
+      }
+
+      if (!tokenPriceUsd && yahoo?.lastPriceUsd) {
+        tokenPriceUsd = yahoo.lastPriceUsd;
+        dataSource = "yahoo-underlying-proxy";
+        if (listing.issuer === "xstocks") {
+          tradeableNow = false;
+          tradeableReason =
+            tradeableReason ||
+            "No liquid route — showing underlying proxy price only.";
+        }
       }
 
       if (!tokenPriceUsd) {
         tradeableNow = false;
-        tradeableReason = `No live price for ${listing.tokenSymbol} yet.`;
+        tradeableReason =
+          tradeableReason || `No live price for ${listing.tokenSymbol} yet.`;
       }
+
+      // Premium direction from token premium vs close over time
+      const pricePerShare =
+        tokenPriceUsd > 0 && ratio > 0 ? tokenPriceUsd / ratio : 0;
+      const premiumPct =
+        referenceUsd && referenceUsd > 0 && pricePerShare > 0
+          ? ((pricePerShare - referenceUsd) / referenceUsd) * 100
+          : null;
+      const driftDir = premiumDirection(
+        `${t}:${listing.issuer}`,
+        premiumPct
+      );
 
       const liq = liqFromUsd(liquidityUsd || volume24hUsd);
       quotes.push({
@@ -266,16 +360,25 @@ export class HybridDataClient implements BinanceWeb3Client {
           dataSource === "yahoo-underlying-proxy"
             ? "Using underlying last price as proxy — on-chain pool quote unavailable"
             : dataSource === "pancakeswap-v2"
-              ? `PancakeSwap V2 size-aware quote${
+              ? `PancakeSwap V2 size-aware quote ($${amountUsd})${
                   priceImpactPct != null
                     ? ` · impact ~${priceImpactPct.toFixed(2)}%`
                     : ""
                 }`
-              : `Price via ${dataSource}`,
+              : dataSource === "dexscreener-thin"
+                ? poolReject || "Thin pool — display only"
+                : dataSource === "coinmarketcap"
+                  ? "Price via CoinMarketCap"
+                  : dataSource === "dexscreener"
+                    ? `Price via DexScreener · liq ~$${Math.round(
+                        liquidityUsd
+                      ).toLocaleString()}`
+                    : `Price via ${dataSource}`,
         volume24hUsd,
         updatedAt: now,
         priceImpactPct,
         dataSource,
+        premiumDirection: driftDir,
       });
     }
 
@@ -287,6 +390,8 @@ export class HybridDataClient implements BinanceWeb3Client {
     const listing = getTokenListing(t, req.issuer);
     const quotes = await this.getQuotes(t, req.amountUsd);
     const q = quotes.find((x) => x.issuer === req.issuer);
+    const yahoo = await fetchYahooClose(t);
+    const referenceUsd = yahoo?.closeUsd ?? null;
 
     if (!listing?.verified) {
       return {
@@ -318,6 +423,33 @@ export class HybridDataClient implements BinanceWeb3Client {
       };
     }
 
+    // Ondo / bStocks: never green "Test run OK" — live fill needs Binance
+    if (req.issuer === "ondo" || req.issuer === "bstocks") {
+      const ratio = q.tokenToShareRatio || 1;
+      const pps =
+        ratio > 0 && q.tokenPriceUsd > 0 ? q.tokenPriceUsd / ratio : 0;
+      return {
+        ok: false,
+        issuer: req.issuer,
+        ticker: t,
+        amountUsd: req.amountUsd,
+        estimatedTokens:
+          q.tokenPriceUsd > 0 ? req.amountUsd / q.tokenPriceUsd : 0,
+        effectivePricePerShare: pps,
+        estimatedFeesUsd: 0,
+        route: `${q.tokenSymbol} — Binance Web3 pending`,
+        steps: [
+          { label: "Compare prices (hybrid data)", status: "ok" },
+          {
+            label: "Live trading coming soon via Binance",
+            status: "pending",
+          },
+        ],
+        warning: "Live trading coming soon via Binance",
+        comingSoonBinance: true,
+      };
+    }
+
     if (!q.tradeableNow) {
       return {
         ok: false,
@@ -332,7 +464,7 @@ export class HybridDataClient implements BinanceWeb3Client {
         estimatedFeesUsd: 0,
         route: `${q.tokenSymbol} (unavailable)`,
         steps: [
-          { label: "Check trade window", status: "skip" },
+          { label: "Check liquid route", status: "skip" },
           { label: "Build swap path", status: "skip" },
         ],
         warning: q.tradeableReason ?? "Not tradeable right now",
@@ -346,7 +478,7 @@ export class HybridDataClient implements BinanceWeb3Client {
         amountUsd: req.amountUsd,
         tokenDecimals: listing.decimals,
       });
-      if (!pcs.ok) {
+      if (!pcs.ok && pcs.path.length === 0) {
         const wrap = XSTOCKS_WRAPPER_BSC[t];
         if (wrap) {
           pcs = await quoteBuyWithUsdt({
@@ -367,13 +499,48 @@ export class HybridDataClient implements BinanceWeb3Client {
           estimatedFeesUsd: 0,
           route: pcs.pathLabel || "PCS",
           steps: [
-            { label: "Check trade window", status: "ok" },
+            { label: "Check liquid route", status: "skip" },
             { label: "PancakeSwap getAmountsOut", status: "skip" },
           ],
           warning: pcs.blockReason || "PCS quote failed",
           blocked: true,
           priceImpactPct: pcs.priceImpactPct,
         };
+      }
+
+      const ratio = listing.tokenToShareRatio || 1;
+      const execPps = pcs.effectiveTokenPriceUsd / ratio;
+
+      // Hard block when execution is >~3% above reference close
+      if (referenceUsd && referenceUsd > 0 && execPps > 0) {
+        const premPct = ((execPps - referenceUsd) / referenceUsd) * 100;
+        if (premPct > MAX_PRICE_VS_REF_PCT) {
+          return {
+            ok: false,
+            issuer: req.issuer,
+            ticker: t,
+            amountUsd: req.amountUsd,
+            estimatedTokens: pcs.amountOutTokens,
+            effectivePricePerShare: execPps,
+            estimatedFeesUsd: req.amountUsd * 0.0025,
+            route: `USDT → ${q.tokenSymbol} via ${pcs.pathLabel}`,
+            steps: [
+              { label: "Check liquid route", status: "ok" },
+              { label: "PancakeSwap getAmountsOut", status: "ok" },
+              {
+                label: `Blocked: ~${premPct.toFixed(1)}% above last close`,
+                status: "skip",
+              },
+            ],
+            warning: `Execution ~${premPct.toFixed(
+              1
+            )}% above last close ($${referenceUsd.toFixed(
+              2
+            )}). Max allowed ~${MAX_PRICE_VS_REF_PCT}% — try a smaller size or wait for a fairer pool.`,
+            blocked: true,
+            priceImpactPct: pcs.priceImpactPct,
+          };
+        }
       }
 
       let simOk = true;
@@ -389,19 +556,18 @@ export class HybridDataClient implements BinanceWeb3Client {
         simErr = sim.error;
       }
 
-      const ratio = listing.tokenToShareRatio || 1;
-      const feeUsd = req.amountUsd * 0.0025; // ~PCS LP fee ballpark
+      const feeUsd = req.amountUsd * 0.0025;
       return {
         ok: simOk || !req.walletAddress,
         issuer: req.issuer,
         ticker: t,
         amountUsd: req.amountUsd,
         estimatedTokens: pcs.amountOutTokens,
-        effectivePricePerShare: pcs.effectiveTokenPriceUsd / ratio,
+        effectivePricePerShare: execPps,
         estimatedFeesUsd: feeUsd,
         route: `USDT → ${q.tokenSymbol} via ${pcs.pathLabel} (PancakeSwap V2)`,
         steps: [
-          { label: "Check trade window", status: "ok" },
+          { label: "Check liquid route", status: "ok" },
           { label: "PancakeSwap getAmountsOut", status: "ok" },
           {
             label: req.walletAddress
@@ -429,34 +595,17 @@ export class HybridDataClient implements BinanceWeb3Client {
       };
     }
 
-    // Ondo / bStocks: stub until Binance Web3
-    const ratio = q.tokenToShareRatio || 1;
-    const feeBps = 8;
-    const estimatedFeesUsd = (req.amountUsd * feeBps) / 10_000;
-    const spendable = req.amountUsd - estimatedFeesUsd;
-    const estimatedTokens =
-      q.tokenPriceUsd > 0 ? spendable / q.tokenPriceUsd : 0;
-
     return {
-      ok: true,
+      ok: false,
       issuer: req.issuer,
       ticker: t,
       amountUsd: req.amountUsd,
-      estimatedTokens,
-      effectivePricePerShare: q.tokenPriceUsd / ratio,
-      estimatedFeesUsd,
-      route: `USDT → ${q.tokenSymbol} (needs Binance Web3 API for live fill)`,
-      steps: [
-        { label: "Check trade window", status: "ok" },
-        { label: "Normalize price per share", status: "ok" },
-        { label: "Estimate fees & tokens out", status: "ok" },
-        {
-          label: "Live fill requires Binance Web3 API",
-          status: "pending",
-        },
-      ],
-      warning:
-        "Simulate only — Ondo/bStock live buys need BINANCE_LIVE + portal API keys.",
+      estimatedTokens: 0,
+      effectivePricePerShare: 0,
+      estimatedFeesUsd: 0,
+      route: "none",
+      steps: [{ label: "Unsupported issuer path", status: "skip" }],
+      warning: "Unsupported simulate path",
     };
   }
 
@@ -473,9 +622,16 @@ export class HybridDataClient implements BinanceWeb3Client {
       ok: false,
       stubbed: true,
       message:
-        "Ondo/bStock execute needs Binance Web3 API (BINANCE_LIVE=true + keys). Spot buy is stubbed.",
+        "Live trading coming soon via Binance. Ondo/bStock execute needs BINANCE_LIVE=true + portal API keys.",
     };
   }
 }
 
 export const HYBRID_TICKERS = [...FEATURED_TICKER_SET];
+
+/** Re-export thresholds for UI/docs */
+export {
+  MIN_POOL_LIQUIDITY_USD,
+  MIN_POOL_VOLUME_24H_USD,
+  MAX_PRICE_VS_REF_PCT,
+};

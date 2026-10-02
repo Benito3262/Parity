@@ -29,7 +29,8 @@ Spot only. No perps. Copied for normal humans, not crypto jargon.
 | Verified BSC addresses (or marked unsupported) | **Live** |
 | US market clock (pre/regular/post/overnight + 2026 holidays) | **Live** |
 | Yahoo last regular close (ET) | **Live** |
-| DexScreener / optional CMC token prices | **Live** (CMC needs `CMC_API_KEY`) |
+| DexScreener token prices | **Live** |
+| CoinMarketCap prices | **Optional** — only if `CMC_API_KEY` is set (not configured on production) |
 | PancakeSwap V2 size-aware quotes + impact | **Live** (xStocks) |
 | Wallet connect (injected + WalletConnect) on BSC 56 | **Live** |
 | xStocks small spot buy (approve + swap, user signs) | **Live** |
@@ -46,7 +47,7 @@ Spot only. No perps. Copied for normal humans, not crypto jargon.
 | App | Next.js 16 (App Router) + TypeScript |
 | UI | Tailwind CSS |
 | Wallet | wagmi + viem + injected + WalletConnect |
-| Prices | Yahoo Finance (closes), DexScreener, optional CoinMarketCap |
+| Prices | Yahoo Finance (closes), DexScreener (CMC optional, unused without key) |
 | DEX | PancakeSwap V2 on BSC |
 | Deploy | Vercel |
 
@@ -80,14 +81,14 @@ See `.env.example`. Important ones:
 
 | Variable | Purpose |
 | --- | --- |
-| `CMC_API_KEY` | Optional CoinMarketCap key (server-only; proxied at `/api/cmc/*`) |
+| `CMC_API_KEY` | Optional — leave empty; production uses DexScreener + Yahoo + PCS (no CMC key configured) |
 | `BSC_RPC_URL` | BSC JSON-RPC for PCS quotes / eth_call |
 | `BINANCE_WEB3_API_KEY` / `SECRET` | Live Binance Web3 Build API |
 | `BINANCE_LIVE` / `BINANCE_WEB3_USE_MOCK` | Switch hybrid → Binance live client |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Mobile wallet QR |
 | `NEXT_PUBLIC_APP_URL` | Exact origin for Reown Verify |
 
-Never commit secrets. CMC key is **never** sent to the browser.
+Never commit secrets. If unset, `/api/cmc/*` returns 503 honestly and the app does not claim CMC prices.
 
 ### Enabling Binance live later
 

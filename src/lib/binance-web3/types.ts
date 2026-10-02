@@ -47,6 +47,8 @@ export type RawIssuerQuote = {
   priceImpactPct?: number | null;
   /** Data provenance label */
   dataSource?: string;
+  /** Token premium vs close trend (not stock day move) */
+  premiumDirection?: "up" | "down" | "flat" | null;
 };
 
 /** Last traditional-market close for the underlying equity */
@@ -85,6 +87,8 @@ export type SimulateTradeResult = {
   /** Size-aware extras */
   priceImpactPct?: number | null;
   blocked?: boolean;
+  /** Ondo/bStock — show Binance-coming-soon UI, not Test run OK */
+  comingSoonBinance?: boolean;
   /** PCS path for client execute */
   pcs?: {
     tokenIn: string;

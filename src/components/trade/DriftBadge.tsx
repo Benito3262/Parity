@@ -10,10 +10,12 @@ export function DriftBadge({
   row: ParityRow;
   comparison: ParityComparison;
 }) {
+  // Rising/falling from this token's premium vs last close over time —
+  // not the underlying stock's day-to-day move.
   const text = driftBadgeText({
     premiumVsClosePct: row.premiumVsClosePct,
     closeWeekdayLabel: comparison.closeWeekdayLabel,
-    direction: comparison.marketClose?.direction,
+    direction: row.premiumDirection ?? null,
     marketClosed: comparison.marketClosed,
   });
   if (!text) return null;

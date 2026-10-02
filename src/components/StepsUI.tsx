@@ -50,6 +50,10 @@ export function StepsUI({
 }: Props) {
   const idx = STEPS.findIndex((s) => s.id === current);
   const isXstocks = (simulation?.issuer || selectedRow?.issuer) === "xstocks";
+  const comingSoon =
+    Boolean(simulation?.comingSoonBinance) ||
+    selectedRow?.issuer === "ondo" ||
+    selectedRow?.issuer === "bstocks";
 
   return (
     <div className="glass rounded-2xl p-5 space-y-5 animate-fade-up">
@@ -106,7 +110,26 @@ export function StepsUI({
       {(current === "simulate" || current === "execute") && simulation && (
         <div className="space-y-4 route-enter">
           <div className="rounded-xl bg-white/[0.03] border border-white/5 p-4 text-sm">
-            {simulation.ok ? (
+            {simulation.comingSoonBinance ? (
+              <>
+                <p className="font-medium text-amber-200">
+                  Live trading coming soon via Binance
+                </p>
+                <p className="mt-2 text-slate-400 text-sm">
+                  {simulation.issuer === "ondo" ? "Ondo" : "bStocks"} spot fills
+                  need Binance Web3 portal API keys (
+                  <code className="text-slate-300">BINANCE_LIVE=true</code>
+                  ). You can still compare prices above.
+                </p>
+                {simulation.effectivePricePerShare > 0 && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Indicative price / share:{" "}
+                    {formatUsd(simulation.effectivePricePerShare)} (not
+                    executable yet)
+                  </p>
+                )}
+              </>
+            ) : simulation.ok ? (
               <>
                 <p className="font-medium text-white">
                   Test run OK via {simulation.route}
@@ -155,29 +178,38 @@ export function StepsUI({
             )}
           </div>
 
-          <ul className="space-y-1.5">
-            {simulation.steps.map((s) => (
-              <li
-                key={s.label}
-                className="flex items-center gap-2 text-sm text-slate-300"
-              >
-                <span
-                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
-                    s.status === "ok"
-                      ? "bg-emerald-500/15 text-emerald-400"
-                      : s.status === "skip"
-                        ? "bg-white/5 text-slate-500"
-                        : "bg-amber-500/15 text-amber-400"
-                  }`}
+          {!simulation.comingSoonBinance && (
+            <ul className="space-y-1.5">
+              {simulation.steps.map((s) => (
+                <li
+                  key={s.label}
+                  className="flex items-center gap-2 text-sm text-slate-300"
                 >
-                  {s.status === "ok" ? "✓" : s.status === "skip" ? "–" : "…"}
-                </span>
-                {s.label}
-              </li>
-            ))}
-          </ul>
+                  <span
+                    className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                      s.status === "ok"
+                        ? "bg-emerald-500/15 text-emerald-400"
+                        : s.status === "skip"
+                          ? "bg-white/5 text-slate-500"
+                          : "bg-amber-500/15 text-amber-400"
+                    }`}
+                  >
+                    {s.status === "ok" ? "✓" : s.status === "skip" ? "–" : "…"}
+                  </span>
+                  {s.label}
+                </li>
+              ))}
+            </ul>
+          )}
 
-          {simulation.ok && (
+          {simulation.comingSoonBinance ? (
+            <div className="border-t border-white/5 pt-4">
+              <p className="text-sm text-slate-400 rounded-xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-3">
+                Live trading coming soon via Binance — no wallet buy for this
+                route yet.
+              </p>
+            </div>
+          ) : simulation.ok ? (
             <div className="border-t border-white/5 pt-4 space-y-3">
               {isXstocks ? (
                 <XstocksBuy
@@ -188,27 +220,12 @@ export function StepsUI({
                   }}
                 />
               ) : (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <p className="text-sm text-slate-400">
-                    Ondo / bStock live fills need the Binance Web3 API
-                    (BINANCE_LIVE). Spot only — no leverage.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onExecute();
-                      onExecuteMessage(
-                        "Ondo/bStock execute is stubbed until BINANCE_LIVE=true and portal API keys are provisioned. xStocks can buy live via PancakeSwap."
-                      );
-                    }}
-                    className="btn-press rounded-xl border-2 border-dashed border-white/15 bg-white/[0.02] px-5 py-2.5 text-sm font-semibold text-slate-200 hover:border-[#f3ba2f]/50 hover:text-[#f3ba2f]"
-                  >
-                    Connect wallet & buy
-                  </button>
-                </div>
+                <p className="text-sm text-slate-400">
+                  Live trading coming soon via Binance for this issuer.
+                </p>
               )}
             </div>
-          )}
+          ) : null}
 
           {executeMessage && (
             <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 animate-fade-in break-words">

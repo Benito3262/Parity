@@ -21,24 +21,6 @@ type SimulateResponse = {
   result: SimulateTradeResult;
 };
 
-/** Chips match home featured set + liquid extras promised on landing */
-const CHIP_TICKERS = [
-  "NVDA",
-  "AAPL",
-  "TSLA",
-  "MSFT",
-  "AMZN",
-  "META",
-  "GOOGL",
-  "SPY",
-  "QQQ",
-  "COIN",
-  "MSTR",
-  "PLTR",
-  "AMD",
-  "NFLX",
-];
-
 export function TradeFlow() {
   const searchParams = useSearchParams();
   const { address } = useAccount();
@@ -116,7 +98,11 @@ export function TradeFlow() {
       const data = (await res.json()) as SimulateResponse & { error?: string };
       if (!res.ok) throw new Error(data.error || "Simulate failed");
       setSimulation(data.result);
-      setStep(data.result.ok ? "simulate" : "compare");
+      setStep(
+        data.result.ok || data.result.comingSoonBinance
+          ? "simulate"
+          : "compare"
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Simulate failed");
     } finally {
@@ -164,7 +150,7 @@ export function TradeFlow() {
             {FEATURED_TICKERS.length} tickers · spot only
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {CHIP_TICKERS.map((t) => (
+            {FEATURED_TICKERS.map((t) => (
               <button
                 key={t}
                 type="button"
@@ -212,9 +198,15 @@ export function TradeFlow() {
             selectedRow={selectedRow}
             canSimulate={Boolean(
               selectedIssuer &&
-                comparison.rows.some(
-                  (r) => r.issuer === selectedIssuer && r.tradeableNow
-                )
+                comparison.rows.some((r) => {
+                  if (r.issuer !== selectedIssuer) return false;
+                  if (r.tradeableNow) return true;
+                  // Ondo/bStock: allow simulate to show "coming soon via Binance"
+                  return (
+                    (r.issuer === "ondo" || r.issuer === "bstocks") &&
+                    r.pricePerShare > 0
+                  );
+                })
             )}
           />
         </>

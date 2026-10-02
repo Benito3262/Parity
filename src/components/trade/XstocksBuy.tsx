@@ -6,9 +6,10 @@ import {
   useWriteContract,
   useWaitForTransactionReceipt,
   useSwitchChain,
+  usePublicClient,
 } from "wagmi";
 import { bsc } from "wagmi/chains";
-import { maxUint256, type Address, type Hex } from "viem";
+import { type Address, type Hex } from "viem";
 import { ConnectButton } from "@/components/wallet/ConnectButton";
 import { BSC } from "@/lib/tokens";
 import { ERC20_ABI, ROUTER_ABI } from "@/lib/pancakeswap";
@@ -22,16 +23,14 @@ type Props = {
 
 /**
  * Real small spot buy for xStocks via PancakeSwap V2.
- * Flow: ensure BSC → check path from simulate → approve USDT if needed → swap.
- * Never auto-signs; each step is a user wallet prompt.
+ * Flow: ensure BSC → check USDT allowance → approve exact amount if needed
+ * (wait for receipt) → swap. Never auto-signs; never unlimited approve.
  */
 export function XstocksBuy({ simulation, onMessage }: Props) {
   const { address, isConnected, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
-  const { writeContractAsync, data: txHash, isPending } = useWriteContract();
-  const { isLoading: confirming, isSuccess } = useWaitForTransactionReceipt({
-    hash: txHash,
-  });
+  const publicClient = usePublicClient({ chainId: bsc.id });
+  const { writeContractAsync, isPending } = useWriteContract();
   const [phase, setPhase] = useState<"idle" | "approve" | "swap" | "done">(
     "idle"
   );
@@ -46,6 +45,10 @@ export function XstocksBuy({ simulation, onMessage }: Props) {
       onMessage("Connect a wallet on BSC to buy xStocks via PancakeSwap.");
       return;
     }
+    if (simulation.blocked) {
+      setError(simulation.warning || "This buy is blocked for safety.");
+      return;
+    }
     if (simulation.amountUsd > 500) {
       setError("Parity caps live xStocks buys at $500 for safety in this MVP.");
       return;
@@ -58,19 +61,49 @@ export function XstocksBuy({ simulation, onMessage }: Props) {
       const amountOutMin = BigInt(pcs.amountOutMinWei);
       const path = pcs.path as Address[];
 
-      setPhase("approve");
-      onMessage("Approve USDT for PancakeSwap (wallet will prompt)…");
-      const approveHash = await writeContractAsync({
-        address: BSC.USDT,
-        abi: ERC20_ABI,
-        functionName: "approve",
-        args: [BSC.PCS_V2_ROUTER, maxUint256],
-        chainId: bsc.id,
-      });
-      setLocalHash(approveHash);
-      onMessage(`Approve submitted: ${approveHash.slice(0, 10)}… Waiting…`);
+      // Check existing allowance first
+      let allowance = BigInt(0);
+      if (publicClient) {
+        allowance = (await publicClient.readContract({
+          address: BSC.USDT,
+          abi: ERC20_ABI,
+          functionName: "allowance",
+          args: [address, BSC.PCS_V2_ROUTER],
+        })) as bigint;
+      }
 
-      // Brief pause then swap (user confirms second tx)
+      if (allowance < amountIn) {
+        setPhase("approve");
+        onMessage(
+          `Approve exactly ${formatUsd(simulation.amountUsd)} USDT for PancakeSwap (wallet will prompt)…`
+        );
+        // Exact amount only — never MaxUint256
+        const approveHash = await writeContractAsync({
+          address: BSC.USDT,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [BSC.PCS_V2_ROUTER, amountIn],
+          chainId: bsc.id,
+        });
+        setLocalHash(approveHash);
+        onMessage(
+          `Approve submitted: ${approveHash.slice(0, 10)}… Waiting for confirmation…`
+        );
+
+        if (publicClient) {
+          const receipt = await publicClient.waitForTransactionReceipt({
+            hash: approveHash,
+            confirmations: 1,
+          });
+          if (receipt.status !== "success") {
+            throw new Error("USDT approval transaction failed on-chain");
+          }
+        } else {
+          // Fallback short wait if no public client
+          await new Promise((r) => setTimeout(r, 4000));
+        }
+      }
+
       setPhase("swap");
       onMessage(
         `Swap ~${formatUsd(simulation.amountUsd)} USDT → tokens (wallet will prompt). Slippage ${(pcs.slippageBps / 100).toFixed(2)}%.`
@@ -105,7 +138,10 @@ export function XstocksBuy({ simulation, onMessage }: Props) {
     chainId,
     switchChainAsync,
     writeContractAsync,
+    publicClient,
     simulation.amountUsd,
+    simulation.blocked,
+    simulation.warning,
     onMessage,
   ]);
 
@@ -128,17 +164,26 @@ export function XstocksBuy({ simulation, onMessage }: Props) {
     );
   }
 
-  const hash = localHash || txHash;
+  if (simulation.blocked) {
+    return (
+      <p className="text-sm text-amber-300">
+        {simulation.warning ||
+          "Buy blocked — execution price is too far above the reference close."}
+      </p>
+    );
+  }
+
+  const hash = localHash;
 
   return (
     <div className="space-y-3">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <p className="text-sm text-slate-400">
-          Spot only · max $500 · you sign every tx · never auto-signed
+          Spot only · max $500 · exact USDT approve · you sign every tx
         </p>
         <button
           type="button"
-          disabled={isPending || confirming || phase === "done"}
+          disabled={isPending || phase === "done"}
           onClick={() => void run()}
           className="btn-press btn-gold rounded-xl px-5 py-2.5 text-sm disabled:opacity-50"
         >
@@ -148,14 +193,12 @@ export function XstocksBuy({ simulation, onMessage }: Props) {
               ? "Swap in wallet…"
               : phase === "done"
                 ? "Submitted"
-                : isPending || confirming
+                : isPending
                   ? "Confirming…"
                   : "Connect wallet & buy"}
         </button>
       </div>
-      {error && (
-        <p className="text-xs text-red-300">{error}</p>
-      )}
+      {error && <p className="text-xs text-red-300">{error}</p>}
       {hash && (
         <a
           href={BSC.explorerTx(hash)}
@@ -163,7 +206,7 @@ export function XstocksBuy({ simulation, onMessage }: Props) {
           rel="noreferrer"
           className="text-xs text-[#f3ba2f] underline break-all"
         >
-          {isSuccess || phase === "done" ? "Tx on BscScan: " : "Pending tx: "}
+          {phase === "done" ? "Tx on BscScan: " : "Pending tx: "}
           {hash}
         </a>
       )}

@@ -40,6 +40,47 @@ const ROUTER_ABI = [
     ],
     outputs: [{ name: "amounts", type: "uint256[]" }],
   },
+  {
+    name: "factory",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+] as const;
+
+const FACTORY_ABI = [
+  {
+    name: "getPair",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "tokenA", type: "address" },
+      { name: "tokenB", type: "address" },
+    ],
+    outputs: [{ name: "pair", type: "address" }],
+  },
+] as const;
+
+const PAIR_ABI = [
+  {
+    name: "getReserves",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "reserve0", type: "uint112" },
+      { name: "reserve1", type: "uint112" },
+      { name: "blockTimestampLast", type: "uint32" },
+    ],
+  },
+  {
+    name: "token0",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
 ] as const;
 
 const ERC20_ABI = [
@@ -86,6 +127,70 @@ const RPC_FALLBACKS = [
   "https://rpc.ankr.com/bsc",
 ].filter(Boolean) as string[];
 
+const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+
+/** Spot mid from reserves: USD per 1 tokenOut along a path (stable → … → token). */
+async function midPriceFromReserves(
+  client: ReturnType<typeof getBscPublicClient>,
+  path: Address[],
+  tokenOutDecimals: number
+): Promise<number | null> {
+  try {
+    const factory = (await client.readContract({
+      address: BSC.PCS_V2_ROUTER,
+      abi: ROUTER_ABI,
+      functionName: "factory",
+    })) as Address;
+
+    // Start with 1 unit of the input stable (18 decimals on BSC USDT/USDC)
+    // and walk reserves: amountOut = amountIn * reserveOut / reserveIn (no fee for mid)
+    let amount = 1; // 1 USD of input token notionally
+    let decimalsIn = 18;
+
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i];
+      const b = path[i + 1];
+      const pair = (await client.readContract({
+        address: factory,
+        abi: FACTORY_ABI,
+        functionName: "getPair",
+        args: [a, b],
+      })) as Address;
+      if (!pair || pair.toLowerCase() === ZERO.toLowerCase()) return null;
+
+      const [reserve0, reserve1] = (await client.readContract({
+        address: pair,
+        abi: PAIR_ABI,
+        functionName: "getReserves",
+      })) as readonly [bigint, bigint, number];
+      const token0 = (await client.readContract({
+        address: pair,
+        abi: PAIR_ABI,
+        functionName: "token0",
+      })) as Address;
+
+      const aIs0 = token0.toLowerCase() === a.toLowerCase();
+      const reserveIn = aIs0 ? reserve0 : reserve1;
+      const reserveOut = aIs0 ? reserve1 : reserve0;
+      if (reserveIn === BigInt(0) || reserveOut === BigInt(0)) return null;
+
+      const decimalsOut = i === path.length - 2 ? tokenOutDecimals : 18;
+      const reserveInNum = Number(formatUnits(reserveIn, decimalsIn));
+      const reserveOutNum = Number(formatUnits(reserveOut, decimalsOut));
+      if (reserveInNum <= 0 || reserveOutNum <= 0) return null;
+
+      amount = (amount * reserveOutNum) / reserveInNum;
+      decimalsIn = decimalsOut;
+    }
+
+    // amount is now tokens out per $1 in → price USD per token = 1 / amount
+    if (amount <= 0) return null;
+    return 1 / amount;
+  } catch {
+    return null;
+  }
+}
+
 export function getBscPublicClient() {
   return createPublicClient({
     chain: bsc,
@@ -105,7 +210,7 @@ export type PcsQuoteResult = {
   amountOutTokens: number;
   /** Effective USD per 1 token out */
   effectiveTokenPriceUsd: number;
-  /** Spot mid (tiny probe) USD per token */
+  /** Spot mid (reserves or tiny probe) USD per token */
   midTokenPriceUsd: number | null;
   priceImpactPct: number | null;
   path: Address[];
@@ -151,6 +256,8 @@ async function tryGetAmountsOut(
 
 /**
  * Quote buying `tokenOut` with USDT (18 decimals on BSC) for `amountUsd`.
+ * Mid price from pool reserves (fallback: $0.01 probe). Impact =
+ * (executionPrice − mid) / mid.
  */
 export async function quoteBuyWithUsdt(args: {
   tokenOut: Address;
@@ -161,10 +268,10 @@ export async function quoteBuyWithUsdt(args: {
   const slippageBps = args.slippageBps ?? 100; // 1%
   const tokenDecimals = args.tokenDecimals ?? 18;
   const client = getBscPublicClient();
-  const amountIn = parseUnits(args.amountUsd.toFixed(6), 18);
+  const amountIn = parseUnits(Math.max(args.amountUsd, 0.000001).toFixed(6), 18);
 
-  // Probe mid with $5
-  const probeIn = parseUnits("5", 18);
+  // Tiny probe only as mid fallback (always << typical trade sizes)
+  const probeIn = parseUnits("0.01", 18);
   let best: {
     path: Address[];
     amounts: bigint[];
@@ -175,7 +282,10 @@ export async function quoteBuyWithUsdt(args: {
     const amounts = await tryGetAmountsOut(client, amountIn, path);
     if (!amounts || amounts.length < 2) continue;
     const probe = await tryGetAmountsOut(client, probeIn, path);
-    if (!best || amounts[amounts.length - 1] > best.amounts[best.amounts.length - 1]) {
+    if (
+      !best ||
+      amounts[amounts.length - 1] > best.amounts[best.amounts.length - 1]
+    ) {
       best = { path, amounts, probe: probe ?? undefined };
     }
   }
@@ -197,8 +307,7 @@ export async function quoteBuyWithUsdt(args: {
       slippageBps,
       amountOutMinWei: "0",
       blocked: true,
-      blockReason:
-        "No PancakeSwap V2 route found for this token on BSC (missing pool or RPC error).",
+      blockReason: "No liquid route on PancakeSwap V2 for this token on BSC.",
       source: "pancakeswap-v2",
     };
   }
@@ -208,22 +317,24 @@ export async function quoteBuyWithUsdt(args: {
   const effective =
     amountOutTokens > 0 ? args.amountUsd / amountOutTokens : 0;
 
-  let mid: number | null = null;
-  let priceImpactPct: number | null = null;
-  if (best.probe && best.probe.length >= 2) {
+  let mid =
+    (await midPriceFromReserves(client, best.path, tokenDecimals)) ?? null;
+
+  if (mid == null && best.probe && best.probe.length >= 2) {
     const probeOut = Number(
       formatUnits(best.probe[best.probe.length - 1], tokenDecimals)
     );
     if (probeOut > 0) {
-      mid = 5 / probeOut;
-      if (mid > 0 && effective > 0) {
-        priceImpactPct = ((effective - mid) / mid) * 100;
-      }
+      mid = 0.01 / probeOut;
     }
   }
 
-  const amountOutMin =
-    (out * BigInt(10_000 - slippageBps)) / BigInt(10_000);
+  let priceImpactPct: number | null = null;
+  if (mid != null && mid > 0 && effective > 0) {
+    priceImpactPct = ((effective - mid) / mid) * 100;
+  }
+
+  const amountOutMin = (out * BigInt(10_000 - slippageBps)) / BigInt(10_000);
 
   let warning: string | undefined;
   let blocked = false;
@@ -231,9 +342,9 @@ export async function quoteBuyWithUsdt(args: {
 
   if (priceImpactPct != null && priceImpactPct >= 15) {
     blocked = true;
-    blockReason = `Price impact ~${priceImpactPct.toFixed(
+    blockReason = `Price impact too high (~${priceImpactPct.toFixed(
       1
-    )}% is too high for a safe spot buy. Try a smaller size.`;
+    )}%). Try a smaller size.`;
   } else if (priceImpactPct != null && priceImpactPct >= 3) {
     warning = `Elevated price impact (~${priceImpactPct.toFixed(
       1
@@ -327,9 +438,7 @@ export function encodeSwapExactTokens(args: {
   });
 }
 
-export async function getUsdtAllowance(
-  owner: Address
-): Promise<bigint> {
+export async function getUsdtAllowance(owner: Address): Promise<bigint> {
   const client = getBscPublicClient();
   return client.readContract({
     address: BSC.USDT,
