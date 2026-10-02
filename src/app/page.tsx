@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Header } from "@/components/Header";
-import { MOCK_TICKERS } from "@/lib/binance-web3";
+import { FEATURED_TICKERS } from "@/lib/tokens";
 
 const FEATURED = ["NVDA", "AAPL", "TSLA", "MSFT", "SPY", "QQQ", "COIN", "PLTR"];
 
@@ -23,7 +23,7 @@ export default function HomePage() {
             </h1>
             <p className="animate-fade-up stagger-2 mt-5 max-w-xl text-lg text-slate-400 leading-relaxed">
               On BNB, the same stock shows up as three tokens — bStocks, Ondo,
-              xStocks. Different hours. Different tokens per share. Prices drift,
+              xStocks. Different hours. Different shares-per-token ratios. Prices drift,
               especially on weekends.{" "}
               <span className="font-medium text-slate-200">
                 Parity finds the true price per share and the best route to buy.
@@ -46,7 +46,7 @@ export default function HomePage() {
 
             <div className="animate-fade-up stagger-4 mt-10">
               <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-3">
-                {MOCK_TICKERS.length} mock tickers · try one
+                {FEATURED_TICKERS.length} tickers · try one
               </p>
               <div className="flex flex-wrap gap-2">
                 {FEATURED.map((t) => (
@@ -62,7 +62,7 @@ export default function HomePage() {
                   href="/trade"
                   className="ticker-chip rounded-full border border-[#f3ba2f]/25 bg-[#f3ba2f]/5 px-3 py-1 text-xs font-semibold text-[#f3ba2f]"
                 >
-                  +{MOCK_TICKERS.length - FEATURED.length} more
+                  +{FEATURED_TICKERS.length - FEATURED.length} more
                 </Link>
               </div>
             </div>
@@ -87,7 +87,7 @@ export default function HomePage() {
                 },
                 {
                   title: "Tokens ≠ shares",
-                  body: "One issuer may use 1 token = 1 share; another uses 10 tokens = 1 share. Parity always converts to real share price.",
+                  body: "Issuers can use different shares-per-token ratios. Parity always converts to real price per share (token price ÷ ratio).",
                 },
               ].map((card, i) => (
                 <div
@@ -159,9 +159,26 @@ export default function HomePage() {
           </div>
         </section>
       </main>
-      <footer className="border-t border-white/5 py-8 text-center text-xs text-slate-500">
-        <p>Parity · Built for Trex’s BNB Hack: Tokenized Stocks Edition</p>
-        <p className="mt-1">Free stack · Next.js · Mock Binance Web3 adapter</p>
+      <footer className="border-t border-white/5 py-8 text-center text-xs text-slate-500 space-y-1">
+        <p>
+          Parity · Built for{" "}
+          <span className="text-slate-400">
+            BNB Hack: Tokenized Stocks Edition
+          </span>{" "}
+          by BNB Chain &amp; Binance Web3 Wallet
+        </p>
+        <p>
+          <a
+            href="https://github.com/Benito3262/Parity"
+            className="text-[#f3ba2f]/90 hover:underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            GitHub
+          </a>
+          {" · "}
+          Hybrid data (Yahoo / Dex / PCS) · Binance Web3 API pending portal keys
+        </p>
       </footer>
     </>
   );

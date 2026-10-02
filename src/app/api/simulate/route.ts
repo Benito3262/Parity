@@ -48,5 +48,5 @@ export async function POST(req: NextRequest) {
     walletAddress,
   });
 
-  return NextResponse.json({ mode: "mock", result });
+  return NextResponse.json({ mode: client.getMode(), result });
 }

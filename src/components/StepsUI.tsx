@@ -2,6 +2,8 @@
 
 import type { SimulateTradeResult } from "@/lib/binance-web3";
 import { formatUsd } from "@/lib/parity";
+import { XstocksBuy } from "@/components/trade/XstocksBuy";
+import type { ParityRow } from "@/lib/parity";
 
 export type FlowStep = "compare" | "simulate" | "execute";
 
@@ -12,7 +14,9 @@ type Props = {
   onSimulate: () => void;
   onExecute: () => void;
   executeMessage: string | null;
+  onExecuteMessage: (msg: string) => void;
   canSimulate: boolean;
+  selectedRow?: ParityRow | null;
 };
 
 const STEPS: { id: FlowStep; label: string; blurb: string }[] = [
@@ -40,9 +44,12 @@ export function StepsUI({
   onSimulate,
   onExecute,
   executeMessage,
+  onExecuteMessage,
   canSimulate,
+  selectedRow,
 }: Props) {
   const idx = STEPS.findIndex((s) => s.id === current);
+  const isXstocks = (simulation?.issuer || selectedRow?.issuer) === "xstocks";
 
   return (
     <div className="glass rounded-2xl p-5 space-y-5 animate-fade-up">
@@ -130,6 +137,11 @@ export function StepsUI({
                     </dd>
                   </div>
                 </dl>
+                {simulation.priceImpactPct != null && (
+                  <p className="mt-2 text-xs text-slate-400">
+                    Est. price impact: {simulation.priceImpactPct.toFixed(2)}%
+                  </p>
+                )}
                 {simulation.warning && (
                   <p className="mt-2 text-xs text-amber-400">
                     {simulation.warning}
@@ -166,23 +178,40 @@ export function StepsUI({
           </ul>
 
           {simulation.ok && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-white/5 pt-4">
-              <p className="text-sm text-slate-400">
-                Live buy needs a wallet on BNB Chain (BSC). Spot only — no
-                leverage.
-              </p>
-              <button
-                type="button"
-                onClick={onExecute}
-                className="btn-press rounded-xl border-2 border-dashed border-white/15 bg-white/[0.02] px-5 py-2.5 text-sm font-semibold text-slate-200 hover:border-[#f3ba2f]/50 hover:text-[#f3ba2f]"
-              >
-                Connect wallet & buy
-              </button>
+            <div className="border-t border-white/5 pt-4 space-y-3">
+              {isXstocks ? (
+                <XstocksBuy
+                  simulation={simulation}
+                  onMessage={(msg) => {
+                    onExecute();
+                    onExecuteMessage(msg);
+                  }}
+                />
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <p className="text-sm text-slate-400">
+                    Ondo / bStock live fills need the Binance Web3 API
+                    (BINANCE_LIVE). Spot only — no leverage.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onExecute();
+                      onExecuteMessage(
+                        "Ondo/bStock execute is stubbed until BINANCE_LIVE=true and portal API keys are provisioned. xStocks can buy live via PancakeSwap."
+                      );
+                    }}
+                    className="btn-press rounded-xl border-2 border-dashed border-white/15 bg-white/[0.02] px-5 py-2.5 text-sm font-semibold text-slate-200 hover:border-[#f3ba2f]/50 hover:text-[#f3ba2f]"
+                  >
+                    Connect wallet & buy
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
           {executeMessage && (
-            <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 animate-fade-in">
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 animate-fade-in break-words">
               {executeMessage}
             </div>
           )}

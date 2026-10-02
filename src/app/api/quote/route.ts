@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBinanceWeb3Client } from "@/lib/binance-web3";
 import { buildParityComparison } from "@/lib/parity";
+import {
+  getMarketStatus,
+  lastRegularCloseWeekdayLabel,
+} from "@/lib/market-clock";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +27,9 @@ export async function GET(req: NextRequest) {
   }
 
   const client = getBinanceWeb3Client();
+  const status = getMarketStatus();
   const [quotes, issuers, marketClose] = await Promise.all([
-    client.getQuotes(ticker),
+    client.getQuotes(ticker, amountUsd),
     client.listIssuers(),
     client.getMarketClose(ticker),
   ]);
@@ -35,10 +40,14 @@ export async function GET(req: NextRequest) {
     quotes,
     issuers,
     marketClose,
+    closeWeekdayLabel: lastRegularCloseWeekdayLabel(),
+    marketClosed: !status.isRegularOpen,
   });
 
   return NextResponse.json({
-    mode: "mock",
+    mode: client.getMode(),
+    marketSession: status.session,
+    marketLabel: status.label,
     comparison,
   });
 }

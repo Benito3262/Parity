@@ -2,15 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useAccount } from "wagmi";
 import { BuyForm } from "@/components/BuyForm";
 import { ResultsTable } from "@/components/ResultsTable";
 import { StepsUI, type FlowStep } from "@/components/StepsUI";
 import type { SimulateTradeResult } from "@/lib/binance-web3";
-import { MOCK_TICKERS } from "@/lib/binance-web3";
+import { FEATURED_TICKERS } from "@/lib/tokens";
 import type { ParityComparison } from "@/lib/parity";
 
 type QuoteResponse = {
   mode: string;
+  marketLabel?: string;
   comparison: ParityComparison;
 };
 
@@ -19,6 +21,7 @@ type SimulateResponse = {
   result: SimulateTradeResult;
 };
 
+/** Chips match home featured set + liquid extras promised on landing */
 const CHIP_TICKERS = [
   "NVDA",
   "AAPL",
@@ -38,6 +41,7 @@ const CHIP_TICKERS = [
 
 export function TradeFlow() {
   const searchParams = useSearchParams();
+  const { address } = useAccount();
   const initialTicker = useMemo(() => {
     const t = (searchParams.get("ticker") || "NVDA").trim().toUpperCase();
     return t.slice(0, 8) || "NVDA";
@@ -46,6 +50,8 @@ export function TradeFlow() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [comparison, setComparison] = useState<ParityComparison | null>(null);
+  const [mode, setMode] = useState<string>("hybrid");
+  const [marketLabel, setMarketLabel] = useState<string | null>(null);
   const [selectedIssuer, setSelectedIssuer] = useState<string | null>(null);
   const [step, setStep] = useState<FlowStep>("compare");
   const [simulation, setSimulation] = useState<SimulateTradeResult | null>(
@@ -74,6 +80,8 @@ export function TradeFlow() {
       const data = (await res.json()) as QuoteResponse & { error?: string };
       if (!res.ok) throw new Error(data.error || "Quote failed");
       setComparison(data.comparison);
+      setMode(data.mode);
+      setMarketLabel(data.marketLabel ?? null);
       setSelectedIssuer(data.comparison.bestIssuer);
     } catch (e) {
       setComparison(null);
@@ -84,7 +92,6 @@ export function TradeFlow() {
     }
   }, []);
 
-  // Prefill from ?ticker= on first mount
   useEffect(() => {
     void runCompare(20, initialTicker);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -103,6 +110,7 @@ export function TradeFlow() {
           issuer: selectedIssuer,
           ticker: lastQuery.ticker,
           amountUsd: lastQuery.amount,
+          walletAddress: address,
         }),
       });
       const data = (await res.json()) as SimulateResponse & { error?: string };
@@ -114,19 +122,19 @@ export function TradeFlow() {
     } finally {
       setSimulateLoading(false);
     }
-  }, [comparison, selectedIssuer, lastQuery]);
+  }, [comparison, selectedIssuer, lastQuery, address]);
 
   const runExecute = useCallback(() => {
     setStep("execute");
-    setExecuteMessage(
-      "Wallet connect is a placeholder. Live BSC spot buys will plug in once BINANCE_WEB3_API_KEY is set and a wallet adapter is wired. No funds move in this MVP."
-    );
   }, []);
 
   function pickTicker(t: string) {
     setFormKey((k) => k + 1);
     void runCompare(lastQuery?.amount ?? 20, t);
   }
+
+  const selectedRow =
+    comparison?.rows.find((r) => r.issuer === selectedIssuer) ?? null;
 
   return (
     <div className="space-y-6">
@@ -136,8 +144,9 @@ export function TradeFlow() {
         </h1>
         <p className="mt-1.5 text-sm text-slate-400 max-w-2xl">
           Same stock, three tokens on BNB (bStocks, Ondo, xStocks). Hours and
-          tokens-per-share differ, so prices drift — especially on weekends.
-          Say how much you want; Parity shows the true price per share.
+          shares-per-token ratios differ, so prices drift — especially when the
+          US cash market is closed. Say how much you want; Parity shows the true
+          price per share.
         </p>
         <div className="mt-5">
           <BuyForm
@@ -150,7 +159,9 @@ export function TradeFlow() {
         </div>
         <div className="mt-4">
           <p className="text-xs text-slate-500 mb-2">
-            Mock mode · {MOCK_TICKERS.length} liquid tickers · spot only
+            Data: <span className="text-slate-300">{mode}</span>
+            {marketLabel ? ` · US market: ${marketLabel}` : ""} ·{" "}
+            {FEATURED_TICKERS.length} tickers · spot only
           </p>
           <div className="flex flex-wrap gap-1.5">
             {CHIP_TICKERS.map((t) => (
@@ -188,6 +199,7 @@ export function TradeFlow() {
               setExecuteMessage(null);
               setStep("compare");
             }}
+            showDrift
           />
           <StepsUI
             current={step}
@@ -196,6 +208,8 @@ export function TradeFlow() {
             onSimulate={runSimulate}
             onExecute={runExecute}
             executeMessage={executeMessage}
+            onExecuteMessage={setExecuteMessage}
+            selectedRow={selectedRow}
             canSimulate={Boolean(
               selectedIssuer &&
                 comparison.rows.some(

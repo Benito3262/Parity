@@ -2,11 +2,15 @@
 
 import type { ParityComparison, ParityRow } from "@/lib/parity";
 import { formatPct, formatUsd } from "@/lib/parity";
+import { DriftBadge } from "@/components/trade/DriftBadge";
+import { formatEt } from "@/lib/yahoo";
 
 type Props = {
   comparison: ParityComparison;
   selectedIssuer: string | null;
   onSelect: (issuer: string) => void;
+  /** When true, show drift badges (buy-flow context) */
+  showDrift?: boolean;
 };
 
 function PremiumCell({ row }: { row: ParityRow }) {
@@ -52,8 +56,19 @@ function TradeableBadge({ row }: { row: ParityRow }) {
   );
 }
 
-export function ResultsTable({ comparison, selectedIssuer, onSelect }: Props) {
-  const { rows, marketClose, summary } = comparison;
+function ratioLabel(row: ParityRow): string {
+  const r = row.tokenToShareRatio;
+  if (!r || Math.abs(r - 1) < 1e-9) return "1 token ≈ 1 share";
+  return `${r} share${r === 1 ? "" : "s"} per token`;
+}
+
+export function ResultsTable({
+  comparison,
+  selectedIssuer,
+  onSelect,
+  showDrift = true,
+}: Props) {
+  const { rows, marketClose, summary, priceAsOf } = comparison;
 
   return (
     <div className="space-y-4 route-enter">
@@ -62,15 +77,18 @@ export function ResultsTable({ comparison, selectedIssuer, onSelect }: Props) {
         {marketClose && (
           <p className="mt-1 text-slate-400 text-xs">
             Reference: last {marketClose.sessionLabel} for {marketClose.ticker}{" "}
-            was {formatUsd(marketClose.closeUsd)} (
-            {new Date(marketClose.asOf).toLocaleString(undefined, {
-              dateStyle: "medium",
-              timeStyle: "short",
-              timeZone: "America/New_York",
-            })}{" "}
+            was {formatUsd(marketClose.closeUsd)} ({formatEt(marketClose.asOf)}{" "}
             ET)
           </p>
         )}
+        <p className="mt-1 text-slate-500 text-[11px]">
+          Prices as of {formatEt(priceAsOf)} ET
+          {rows.some((r) => r.dataSource)
+            ? ` · sources: ${[
+                ...new Set(rows.map((r) => r.dataSource).filter(Boolean)),
+              ].join(", ")}`
+            : ""}
+        </p>
       </div>
 
       {/* Desktop table */}
@@ -110,22 +128,28 @@ export function ResultsTable({ comparison, selectedIssuer, onSelect }: Props) {
                     )}
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {row.tokenSymbol}
-                    {row.tokensPerShare !== 1
-                      ? ` · ${row.tokensPerShare} tokens = 1 share`
-                      : ""}
+                    {row.tokenSymbol} · {ratioLabel(row)}
                   </p>
+                  {row.worseByUsd != null && row.worseByUsd > 0 && (
+                    <p className="text-[11px] text-amber-400/90 mt-1">
+                      +{formatUsd(row.worseByUsd)} / share (
+                      {formatPct(row.worseByPct ?? 0)}) vs best
+                    </p>
+                  )}
+                  {showDrift && selectedIssuer === row.issuer && (
+                    <DriftBadge row={row} comparison={comparison} />
+                  )}
                 </td>
                 <td className="px-4 py-3.5">
                   <TradeableBadge row={row} />
                   {!row.tradeableNow && row.tradeableReason && (
-                    <p className="mt-1 text-xs text-slate-500 max-w-[160px]">
+                    <p className="mt-1 text-xs text-slate-500 max-w-[180px]">
                       {row.tradeableReason}
                     </p>
                   )}
                 </td>
                 <td className="px-4 py-3.5 font-semibold tabular-nums text-white number-tick">
-                  {formatUsd(row.pricePerShare)}
+                  {row.pricePerShare > 0 ? formatUsd(row.pricePerShare) : "—"}
                 </td>
                 <td className="px-4 py-3.5 tabular-nums">
                   <PremiumCell row={row} />
@@ -171,7 +195,9 @@ export function ResultsTable({ comparison, selectedIssuer, onSelect }: Props) {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="font-semibold text-white">{row.displayName}</p>
-                <p className="text-xs text-slate-500">{row.tokenSymbol}</p>
+                <p className="text-xs text-slate-500">
+                  {row.tokenSymbol} · {ratioLabel(row)}
+                </p>
               </div>
               {row.isBestRoute && (
                 <span className="rounded-full bg-gradient-to-r from-[#f3ba2f] to-[#e8a017] px-2 py-0.5 text-[10px] font-bold uppercase text-[#0b1220]">
@@ -182,12 +208,23 @@ export function ResultsTable({ comparison, selectedIssuer, onSelect }: Props) {
             <div className="mt-3 flex flex-wrap gap-3 text-sm">
               <TradeableBadge row={row} />
               <span className="font-semibold tabular-nums text-white">
-                {formatUsd(row.pricePerShare)}
+                {row.pricePerShare > 0 ? formatUsd(row.pricePerShare) : "—"}
                 <span className="font-normal text-slate-500"> / share</span>
               </span>
               <PremiumCell row={row} />
             </div>
+            {row.worseByUsd != null && row.worseByUsd > 0 && (
+              <p className="mt-1 text-[11px] text-amber-400/90">
+                Paying +{formatUsd(row.worseByUsd)}/share vs best route
+              </p>
+            )}
             <p className="mt-2 text-xs text-slate-500">{row.liquidityNote}</p>
+            {!row.tradeableNow && row.tradeableReason && (
+              <p className="mt-1 text-xs text-slate-500">{row.tradeableReason}</p>
+            )}
+            {showDrift && selectedIssuer === row.issuer && (
+              <DriftBadge row={row} comparison={comparison} />
+            )}
           </button>
         ))}
       </div>

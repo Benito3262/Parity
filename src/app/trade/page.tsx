@@ -23,8 +23,21 @@ export default function TradePage() {
           <TradeFlow />
         </Suspense>
       </main>
-      <footer className="border-t border-white/5 py-6 text-center text-xs text-slate-500">
-        Parity · Trex BNB Hack · Tokenized Stocks Edition · Spot only
+      <footer className="border-t border-white/5 py-6 text-center text-xs text-slate-500 space-y-1">
+        <p>
+          Parity · BNB Hack: Tokenized Stocks Edition · BNB Chain &amp; Binance
+          Web3 Wallet · Spot only
+        </p>
+        <p>
+          <a
+            href="https://github.com/Benito3262/Parity"
+            className="text-[#f3ba2f]/90 hover:underline"
+            target="_blank"
+            rel="noreferrer"
+          >
+            github.com/Benito3262/Parity
+          </a>
+        </p>
       </footer>
     </>
   );

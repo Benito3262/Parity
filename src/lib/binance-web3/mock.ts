@@ -89,7 +89,7 @@ const MARKET_CLOSES: Record<string, MarketClose> = Object.fromEntries(
     {
       ticker: s.ticker,
       closeUsd: s.closeUsd,
-      asOf: "2026-09-26T20:00:00.000Z",
+      asOf: "2026-09-25T20:00:00.000Z",
       sessionLabel: "NYSE close",
     } satisfies MarketClose,
   ])
@@ -161,8 +161,9 @@ function buildQuotes(ticker: Ticker): RawIssuerQuote[] {
     quotes.push({
       issuer: "bstocks",
       ticker: t,
-      tokenSymbol: `b${t}`,
+      tokenSymbol: `${t}B`,
       tokenPriceUsd: round4(pricePerShare),
+      tokenToShareRatio: 1,
       tokensPerShare: 1,
       tradeableNow: true,
       liquidity: depthLiquidity(stock.depth, "bstocks", isWeekend),
@@ -175,17 +176,18 @@ function buildQuotes(ticker: Ticker): RawIssuerQuote[] {
     });
   }
 
-  // Ondo — often 10 tokens = 1 share; pauses weekends
+  // Ondo — 1:1 shares-per-token (no fake 10x); pauses outside regular hours in hybrid
   if (stock.ondoListed) {
     const prem = (isWeekend ? 0.018 : 0.003) + jitter * 0.8;
     const pricePerShare = close * (1 + prem);
-    const tokensPerShare = 10;
+    const tokenToShareRatio = 1;
     quotes.push({
       issuer: "ondo",
       ticker: t,
-      tokenSymbol: `${t}.on`,
-      tokenPriceUsd: round4(pricePerShare / tokensPerShare),
-      tokensPerShare,
+      tokenSymbol: `${t}on`,
+      tokenPriceUsd: round4(pricePerShare / tokenToShareRatio),
+      tokenToShareRatio,
+      tokensPerShare: 1 / tokenToShareRatio,
       tradeableNow: !isWeekend,
       tradeableReason: isWeekend
         ? "Ondo spot pauses over the weekend"
@@ -208,8 +210,9 @@ function buildQuotes(ticker: Ticker): RawIssuerQuote[] {
     quotes.push({
       issuer: "xstocks",
       ticker: t,
-      tokenSymbol: `x${t}`,
+      tokenSymbol: `${t}x`,
       tokenPriceUsd: round4(pricePerShare),
+      tokenToShareRatio: 1,
       tokensPerShare: 1,
       tradeableNow: true,
       liquidity: liq,
@@ -235,6 +238,10 @@ function sleep(ms: number) {
 }
 
 export class MockBinanceWeb3Client implements BinanceWeb3Client {
+  getMode() {
+    return "mock" as const;
+  }
+
   async listIssuers(): Promise<IssuerMeta[]> {
     await sleep(80);
     return ISSUERS;
@@ -245,7 +252,7 @@ export class MockBinanceWeb3Client implements BinanceWeb3Client {
     return MARKET_CLOSES[ticker.toUpperCase()] ?? null;
   }
 
-  async getQuotes(ticker: Ticker): Promise<RawIssuerQuote[]> {
+  async getQuotes(ticker: Ticker, _amountUsd?: number): Promise<RawIssuerQuote[]> {
     await sleep(120);
     return buildQuotes(ticker);
   }
@@ -277,7 +284,7 @@ export class MockBinanceWeb3Client implements BinanceWeb3Client {
         ticker: req.ticker.toUpperCase(),
         amountUsd: req.amountUsd,
         estimatedTokens: 0,
-        effectivePricePerShare: q.tokenPriceUsd * q.tokensPerShare,
+        effectivePricePerShare: q.tokenToShareRatio > 0 ? q.tokenPriceUsd / q.tokenToShareRatio : q.tokenPriceUsd * q.tokensPerShare,
         estimatedFeesUsd: 0,
         route: `${q.tokenSymbol} (unavailable)`,
         steps: [
@@ -292,7 +299,7 @@ export class MockBinanceWeb3Client implements BinanceWeb3Client {
     const estimatedFeesUsd = (req.amountUsd * feeBps) / 10_000;
     const spendable = req.amountUsd - estimatedFeesUsd;
     const estimatedTokens = spendable / q.tokenPriceUsd;
-    const effectivePricePerShare = q.tokenPriceUsd * q.tokensPerShare;
+    const effectivePricePerShare = q.tokenToShareRatio > 0 ? q.tokenPriceUsd / q.tokenToShareRatio : q.tokenPriceUsd * (q.tokensPerShare || 1);
 
     return {
       ok: true,
