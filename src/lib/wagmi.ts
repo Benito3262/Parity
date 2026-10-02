@@ -5,6 +5,7 @@ import type { CreateConnectorFn } from "wagmi";
 
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID?.trim() ?? "";
 
+/** True when WalletConnect connector is registered (needed for mobile wallets). */
 export const hasWalletConnect = projectId.length > 0;
 
 const connectors: CreateConnectorFn[] = [
