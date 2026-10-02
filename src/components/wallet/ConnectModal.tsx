@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useConnect, useSwitchChain } from "wagmi";
 import { hasWalletConnect, BSC_CHAIN_ID } from "@/lib/wagmi";
 
@@ -145,7 +146,9 @@ export function ConnectModal({ open, onClose }: Props) {
   // While WC modal is open, render nothing from us so WC owns the viewport.
   if (wcHandoff) return null;
 
-  return (
+  // Portal to body: Header uses backdrop-blur which creates a containing block
+  // that would trap position:fixed inside the 56px header bar.
+  const sheet = (
     <div
       className="parity-connect-overlay fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4 animate-fade-in"
       role="dialog"
@@ -309,4 +312,7 @@ export function ConnectModal({ open, onClose }: Props) {
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(sheet, document.body);
 }
