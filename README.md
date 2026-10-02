@@ -23,10 +23,11 @@ Spot only. No perps. Copied for normal humans, not crypto jargon.
 | --- | --- |
 | App | Next.js (App Router) + TypeScript |
 | UI | Tailwind CSS |
+| Wallet | wagmi v2 + viem + injected EIP-1193 + WalletConnect v2 |
 | Deploy | Vercel-ready |
 | Data | `lib/binance-web3` adapter — **mock by default** |
 
-Free stack. No paid APIs required to run the MVP.
+Free stack. No paid APIs required to run the MVP (WalletConnect Cloud projectId is free when you want mobile QR).
 
 ---
 
@@ -42,7 +43,8 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000).
 
 - Landing: `/`
-- Buy flow: `/trade`
+- Buy flow: `/trade` (works without a wallet)
+- Profile + portfolio: `/profile` (connect → create profile → unlock UI)
 - Sample tickers in mock mode: **28 liquid names** (NVDA, AAPL, TSLA, MSFT, SPY, QQQ, COIN, …)
 
 Production build:
@@ -65,19 +67,40 @@ Copy `.env.example` → `.env.local` (never commit secrets).
 | `BINANCE_WEB3_USE_MOCK` | `"true"` (default) forces mock even if keys exist |
 | `NEXT_PUBLIC_CHAIN_ID` | `56` = BSC mainnet |
 | `NEXT_PUBLIC_APP_NAME` | Display name |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | WalletConnect Cloud project id (free). Needed for mobile / Zerion via WC. Injected wallets work without it. |
 
 `.gitignore` ignores `.env*` but keeps `.env.example`.
 
-### Adding real keys later
+### WalletConnect project id
+
+1. Create a free project at [cloud.walletconnect.com](https://cloud.walletconnect.com).
+2. Copy the **Project ID**.
+3. Set `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` in `.env.local` (and in Vercel project env if deployed).
+4. Redeploy / restart `npm run dev`.
+
+If the variable is empty, Parity still ships **browser extension** connect (MetaMask, etc.) and shows a note that WalletConnect is offline.
+
+### Adding real Binance keys later
 
 1. Get Binance Web3 API credentials.
 2. Put them in `.env.local`.
 3. Set `BINANCE_WEB3_USE_MOCK=false`.
 4. Implement `LiveBinanceWeb3Client` in `src/lib/binance-web3/` that satisfies the same `BinanceWeb3Client` interface as the mock (`types.ts`).
 5. Uncomment the live branch in `client.ts`.
-6. Wire a wallet adapter (e.g. WalletConnect / Binance Web3 Wallet) for the **Execute** step — currently a placeholder.
+6. Wire execute to the connected wallet for live BSC spot buys — execute is still a placeholder today.
 
 Until then, quotes + simulate use fixture data; execute never sends a chain transaction.
+
+---
+
+## Wallet + profile flow
+
+1. **Connect** from the header (injected and/or WalletConnect → BSC chain id 56).
+2. **Disconnect** from the address menu.
+3. After connect, open **Create profile** / `/profile` — display name + optional bio, stored in `localStorage` keyed by address (`parity:profile:0x…`).
+4. **Profile card + portfolio panel** only render after a profile exists for that address. Before that: connect empty state or create-profile form.
+5. Portfolio holdings are **clearly labeled mock** until live balances exist.
+6. Landing + `/trade` fair-price router remain usable **without** a wallet.
 
 ---
 
@@ -88,21 +111,26 @@ src/
   app/
     page.tsx              # Landing
     trade/page.tsx        # Main buy flow
+    profile/page.tsx      # Gated profile + portfolio
     api/quote/route.ts    # Compare issuers → parity table
     api/simulate/route.ts # Mock Transaction / dry-run API
   components/
-    BuyForm.tsx           # "Buy $20 of NVDA"
-    ResultsTable.tsx      # 3 issuers + best-route badge
-    StepsUI.tsx           # compare → simulate → execute
-    TradeFlow.tsx         # Client orchestration
-    Header.tsx
+    BuyForm.tsx
+    ResultsTable.tsx
+    StepsUI.tsx
+    TradeFlow.tsx
+    Header.tsx            # Connect wallet + Buy stock
+    providers/Web3Provider.tsx
+    wallet/ConnectButton.tsx
+    wallet/ConnectModal.tsx
+    profile/*
+    portfolio/PortfolioPanel.tsx
+  hooks/useProfile.ts
   lib/
+    wagmi.ts              # BSC + injected + optional WalletConnect
+    profile.ts            # localStorage profile helpers
     binance-web3/
-      types.ts            # Client interface + domain types
-      mock.ts             # ~28 liquid ticker fixtures across 3 issuers
-      client.ts           # Factory (mock today, live later)
-      index.ts
-    parity.ts             # Normalize to $/share, premium vs close, best route
+    parity.ts
 ```
 
 ---
@@ -113,12 +141,15 @@ src/
 | --- | --- |
 | Landing + trade UX | Ready |
 | Amount + ticker input | Ready |
-| 3-issuer compare table (tradeable, $/share, premium vs close, liquidity, best route) | Ready (mock data) |
+| 3-issuer compare table | Ready (mock data) |
 | Compare → Simulate → Execute steps UI | Ready |
 | Simulate (mock Transaction API) | Ready |
-| Execute / wallet connect | **Stubbed** — shows placeholder; no live swap |
-| Live Binance Web3 HTTP client | **Not implemented** — plug in via adapter + env vars |
-| Wallet / BSC tx broadcast | **Not implemented** |
+| Wallet connect / disconnect (injected) | Ready |
+| WalletConnect v2 (mobile / Zerion) | Ready when `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` set |
+| Profile create + gate | Ready (localStorage) |
+| Portfolio panel | Ready (**mock** holdings) |
+| Execute / live swap | **Stubbed** — no live on-chain swap yet |
+| Live Binance Web3 HTTP client | **Not implemented** |
 
 Do not assume live swaps work. They don’t in this scaffold.
 
