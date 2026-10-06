@@ -38,8 +38,13 @@ export type RawIssuerQuote = {
   /** Optional reason when not tradeable (weekend, maintenance, etc.) */
   tradeableReason?: string;
   /** Rough liquidity hint for UX (not a guarantee) */
-  liquidity: "high" | "medium" | "low";
+  liquidity: "high" | "medium" | "low" | "unknown";
   liquidityNote: string;
+  /** Binance RWA marketStatus: premarket | regular | postmarket | overnight | closed | pause */
+  marketStatus?: string;
+  attestationUrl?: string | null;
+  nextOpenTime?: string;
+  referencePriceUsd?: number | null;
   /** 24h volume in USD (fixture / API) */
   volume24hUsd: number;
   updatedAt: string; // ISO
@@ -98,6 +103,11 @@ export type SimulateTradeResult = {
     path: string[];
     slippageBps: number;
   };
+  quoteId?: string;
+  quoteExpiresAt?: number;
+  executionMode?: string;
+  swapTx?: { to: string; data: string; value: string; from?: string };
+  rfq?: { typedData: unknown; vendor?: string };
 };
 
 export type ExecuteTradeRequest = SimulateTradeRequest & {
@@ -129,9 +139,11 @@ export interface BinanceWeb3Client {
 
 /** Binance Web3 error codes we map to plain English */
 export const BINANCE_ERROR_MAP: Record<number, string> = {
+  40101: "API key is required or invalid.",
+  40102: "Invalid signature. The signed path must include /build.",
   40367: "Ondo can't trade right now (session / venue restriction).",
   40369: "bStock can't trade right now (session / venue restriction).",
-  40101: "API key is required or invalid.",
+  40401: "Quote expired (30 seconds). Run the test again.",
 };
 
 export const QUOTE_EXPIRY_MS = 30_000;
